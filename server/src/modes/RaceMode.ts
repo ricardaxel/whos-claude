@@ -1,0 +1,40 @@
+import { ARENA, Dir, IDLE, RACE } from "@whosclaude/shared";
+import type { Entity } from "../GameState.js";
+import type { GameMode, NpcBrain } from "./GameMode.js";
+
+const FORWARD: Dir = 0; // vers l'est, donc vers la ligne d'arrivée
+
+/**
+ * Course : tout le monde part de la même ligne, une seule action (avancer).
+ * Le premier joueur à franchir l'arrivée gagne. Les PNJ avancent par à-coups :
+ * avancer en continu, c'est se trahir.
+ */
+export class RaceMode implements GameMode {
+  readonly entityCount = RACE.entityCount;
+
+  spawnPositions() {
+    const gap = ARENA.height / (this.entityCount + 1);
+    return Array.from({ length: this.entityCount }, (_, i) => ({ x: RACE.startX, y: gap * (i + 1) }));
+  }
+
+  mapInput(dir: Dir): Dir {
+    return dir === IDLE ? IDLE : FORWARD;
+  }
+
+  thinkNpc(entity: Entity, brain: NpcBrain, dt: number) {
+    brain.timer -= dt;
+    if (brain.timer > 0) return;
+
+    if (entity.dir === IDLE) {
+      entity.dir = FORWARD;
+      brain.timer = 0.4 + Math.random() * 1.8;
+    } else {
+      entity.dir = IDLE;
+      brain.timer = 0.3 + Math.random() * 2.2;
+    }
+  }
+
+  hasWon(entity: Entity) {
+    return entity.x >= RACE.finishX;
+  }
+}

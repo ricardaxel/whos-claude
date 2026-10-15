@@ -1,4 +1,5 @@
 import { MapSchema, Schema, type } from "@colyseus/schema";
+import type { Phase } from "@whosclaude/shared";
 
 /**
  * État diffusé à tous les clients. Volontairement minimal :
@@ -11,5 +12,7 @@ export class Entity extends Schema {
 }
 
 export class GameState extends Schema {
+  @type("string") phase: Phase = "lobby";
+  @type("uint8") countdown = 0;
   @type({ map: Entity }) entities = new MapSchema<Entity>();
 }

@@ -4,7 +4,6 @@ export const ARENA = { width: 960, height: 640 } as const;
 export const ENTITY_RADIUS = 12;
 export const TICK_RATE = 20; // ticks serveur par seconde
 export const SPEED = 70; // px/s, identique pour joueurs et PNJ
-export const ENTITY_COUNT = 30; // nombre fixe de personnages dans l'arène
 export const SERVER_PORT = 2567;
 export const ROOM_NAME = "game";
 
@@ -46,9 +45,23 @@ function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
+// --- Déroulement d'une manche ---
+
+export type Phase = "lobby" | "countdown" | "racing" | "finished";
+export const COUNTDOWN_SECONDS = 3;
+export const RESULTS_SECONDS = 6;
+
+// --- Mode course ---
+
+export const RACE = {
+  entityCount: 20,
+  startX: 60,
+  finishX: 900,
+} as const;
+
 // --- Messages réseau ---
 
-/** Client → serveur : direction voulue. */
+/** Client → serveur : direction voulue (le mode décide comment l'interpréter). */
 export interface InputMessage {
   dir: Dir;
 }
@@ -58,7 +71,15 @@ export interface AssignMessage {
   entityId: string;
 }
 
+/** Serveur → tous, en fin de manche uniquement : qui était joueur, et qui a gagné. */
+export interface RevealMessage {
+  winnerEntityId: string;
+  playerEntityIds: string[];
+}
+
 export const MSG = {
   input: "input",
+  start: "start",
   assign: "assign",
+  reveal: "reveal",
 } as const;
