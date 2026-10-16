@@ -1,4 +1,5 @@
 import { boot, type ColyseusTestServer } from "@colyseus/testing";
+import type { Server } from "colyseus";
 import type { Room as ClientRoom } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import {
@@ -8,19 +9,68 @@ import {
 import { createGameServer } from "../src/app.js";
 import { GameRoom } from "../src/GameRoom.js";
 
-const TEST_PORT = 2598;
+const TEST_PORT = Number(process.env.TEST_PORT ?? 2598);
 
-/** Démarre un serveur de test par fichier ; le temps n'avance que via advance(). */
-export function useTestServer() {
+/**
+ * Démarre un serveur de test par fichier ; le temps n'avance que via advance().
+ * `configure` permet d'enregistrer des rooms de test supplémentaires.
+ */
+export function useTestServer(configure?: (server: Server) => void) {
   const ctx = { colyseus: undefined as unknown as ColyseusTestServer };
   beforeAll(async () => {
     GameRoom.autoTick = false;
-    ctx.colyseus = await boot(createGameServer(), TEST_PORT);
+    const server = createGameServer();
+    configure?.(server);
+    ctx.colyseus = await boot(server, TEST_PORT);
   });
   afterEach(async () => ctx.colyseus.cleanup());
   afterAll(async () => ctx.colyseus.shutdown());
   return ctx;
 }
+
+// --- Attentes déterministes (jamais de setTimeout « au cas où ») ---
+
+/** Attend qu'une condition devienne vraie ; échoue avec `what` au bout de `timeout` ms. */
+export async function waitFor(condition: () => boolean, what = "condition", timeout = 2000) {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > timeout) throw new Error(`waitFor : ${what} toujours faux après ${timeout} ms`);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+/**
+ * Envoie un message et attend que le serveur l'ait traité (ou ignoré).
+ * waitForMessage(type) encapsule le gestionnaire de ce type et ne résout qu'après lui.
+ * (waitForNextMessage ne convient pas : son setTimeout résout l'attente *suivante*
+ * quand on enchaîne les envois.)
+ */
+export async function send(room: GameRoom, player: Player, type: string, payload?: unknown) {
+  const handled = room.waitForMessage(type);
+  player.room.send(type, payload);
+  await handled;
+}
+
+/**
+ * Attend que l'état des entités vu par ce client rejoigne celui du serveur.
+ * Les patches partent sur un intervalle réel (50 ms) alors que les messages partent
+ * tout de suite : sans cette attente, un message peut doubler les patches qui le précèdent.
+ * (clientRoom.waitForNextPatch ne se résout pas avec cette version de colyseus.js.)
+ */
+export async function syncState(room: GameRoom, player: Player) {
+  await waitFor(() => {
+    const seen = player.room.state.entities as Map<string, { x: number; y: number; alive: boolean }>;
+    if (seen.size !== room.state.entities.size) return false;
+    for (const [id, e] of room.state.entities) {
+      const c = seen.get(id);
+      // Positions encodées en float32 : comparaison à une tolérance près.
+      if (!c || Math.abs(c.x - e.x) > 1e-3 || Math.abs(c.y - e.y) > 1e-3 || c.alive !== e.alive) return false;
+    }
+    return true;
+  }, "état client synchronisé");
+}
+
+// --- Clients de test ---
 
 /** Client de test qui enregistre tout ce qu'il reçoit. */
 export interface Player {
@@ -48,12 +98,11 @@ export async function join(colyseus: ColyseusTestServer, room: GameRoom, name = 
   return player;
 }
 
-export async function createRoom(colyseus: ColyseusTestServer) {
-  return (await colyseus.createRoom(ROOM_NAME, {})) as unknown as GameRoom;
+export async function createRoom(colyseus: ColyseusTestServer, roomName = ROOM_NAME) {
+  return (await colyseus.createRoom(roomName, {})) as unknown as GameRoom;
 }
 
-/** Laisse le temps aux messages de traverser le réseau local. */
-export const settle = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
+// --- Temps et match ---
 
 /** Avance la simulation de `seconds`, tick par tick, en vérifiant les invariants. */
 export function advance(room: GameRoom, seconds: number) {
@@ -85,13 +134,23 @@ export function internals(room: GameRoom) {
 /** Lance un match : tout le monde prêt, l'hôte démarre, on va jusqu'à la manche jouable. */
 export async function startMatch(room: GameRoom, players: Player[], rounds = 1) {
   const host = players.find((p) => p.sessionId === room.state.hostId)!;
-  host.room.send(MSG.settings, { rounds });
-  for (const p of players) if (p !== host) p.room.send(MSG.ready, { ready: true });
-  await settle();
-  host.room.send(MSG.startMatch);
-  await settle();
+  await send(room, host, MSG.settings, { rounds });
+  for (const p of players) if (p !== host) await send(room, p, MSG.ready, { ready: true });
+  await send(room, host, MSG.startMatch);
   advanceUntil(room, "playing");
-  await settle();
+  await waitFor(() => players.every((p) => p.assigns.length === room.state.round), "attribution reçue par chaque joueur");
+}
+
+/** Tire sur une entité et laisse le viseur l'atteindre. */
+export async function shoot(room: GameRoom, shooter: Player, entityId: string) {
+  const target = room.state.entities.get(entityId)!;
+  const shotsBefore = shooter.shots.length;
+  await send(room, shooter, MSG.fire, { aimX: target.x, aimY: target.y });
+  for (let i = 0; i < 2 * TICK_RATE && shooter.shots.length === shotsBefore; i++) {
+    advance(room, 1 / TICK_RATE);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  await waitFor(() => shooter.shots.length > shotsBefore, "message de tir");
 }
 
 /** Ce qui doit toujours être vrai, quel que soit l'enchaînement d'actions. */
@@ -101,15 +160,16 @@ export function checkInvariants(room: GameRoom) {
   const ids = [...state.players.keys()];
 
   if (ids.length > 0) expect(ids).toContain(state.hostId);
-  const colors = [...state.players.values()].map((p) => p.color);
-  expect(new Set(colors).size).toBe(colors.length);
-  for (const c of colors) expect(c).toBeLessThan(CROSSHAIR_COLORS.length);
+  const players = [...state.players.values()];
+  expect(new Set(players.map((p) => p.color)).size).toBe(players.length);
+  expect(new Set(players.map((p) => p.name)).size).toBe(players.length);
+  for (const p of players) expect(p.color).toBeLessThan(CROSSHAIR_COLORS.length);
 
   expect(state.totalRounds).toBeGreaterThanOrEqual(ROUNDS.min);
   expect(state.totalRounds).toBeLessThanOrEqual(ROUNDS.max);
   // Pendant un match, au plus un point par manche jouée (au salon, on affiche le match précédent).
   if (state.phase !== "lobby") {
-    const scoreSum = [...state.players.values()].reduce((sum, p) => sum + p.score, 0);
+    const scoreSum = players.reduce((sum, p) => sum + p.score, 0);
     expect(scoreSum).toBeLessThanOrEqual(state.round);
   }
 

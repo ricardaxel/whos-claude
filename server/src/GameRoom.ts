@@ -8,6 +8,7 @@ import {
 import { Crosshair, Entity, GameState, PlayerInfo } from "./GameState.js";
 import type { GameMode, NpcBrain } from "./modes/GameMode.js";
 import { createMode } from "./modes/index.js";
+import { uniqueName } from "./names.js";
 import { releaseRoomCode, reserveRoomCode } from "./roomCodes.js";
 
 /** Données côté serveur uniquement : qui contrôle quoi. Jamais synchronisé. */
@@ -34,7 +35,11 @@ interface RoundPlayer {
  * Salon (réglages, joueurs prêts) → match de N manches → podium → salon.
  */
 export class GameRoom extends Room<GameState> {
-  /** Les tests passent à false et font avancer le temps eux-mêmes avec tick(). */
+  /**
+   * Les tests passent à false et font avancer le temps eux-mêmes avec tick().
+   * Volontairement statique, et surtout pas une option de room : les options
+   * de création viennent du client, qui pourrait sinon figer une partie.
+   */
   static autoTick = true;
 
   maxClients = MAX_PLAYERS;
@@ -104,7 +109,9 @@ export class GameRoom extends Room<GameState> {
     // onAuth est asynchrone : un startMatch a pu être traité entre-temps.
     if (this.state.phase !== "lobby") throw new ServerError(403, "Un match est en cours, réessaie à la fin.");
     const info = new PlayerInfo();
-    info.name = sanitizeName(options?.name) || `Joueur ${this.state.players.size + 1}`;
+    const taken = new Set<string>();
+    this.state.players.forEach((p) => taken.add(p.name));
+    info.name = uniqueName(sanitizeName(options?.name), taken);
     info.color = this.freeColor();
     this.state.players.set(client.sessionId, info);
     if (!this.state.hostId) this.state.hostId = client.sessionId;

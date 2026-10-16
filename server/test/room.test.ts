@@ -1,38 +1,70 @@
 import { describe, expect, it } from "vitest";
-import { MSG, RACE, ROUNDS } from "@whosclaude/shared";
+import type { Client } from "colyseus";
+import { MSG, RACE, ROUNDS, type JoinOptions } from "@whosclaude/shared";
+import { GameRoom } from "../src/GameRoom.js";
 import {
-  advance, advanceUntil, createRoom, internals, join, settle, startMatch, useTestServer,
+  advance, advanceUntil, createRoom, internals, join, send, shoot, startMatch, useTestServer, waitFor,
 } from "./helpers.js";
 
-const ctx = useTestServer();
+/**
+ * Room dont l'autorisation peut être suspendue après la vérification de phase,
+ * pour rejouer la course « startMatch traité pendant un onAuth asynchrone ».
+ */
+class SlowAuthRoom extends GameRoom {
+  static gate: Promise<void> | null = null;
+  static waiting = false;
+}
+Object.defineProperty(SlowAuthRoom.prototype, "onAuth", {
+  value: async function (this: GameRoom, client: Client, options: JoinOptions) {
+    const allowed = GameRoom.prototype.onAuth.call(this, client, options);
+    if (SlowAuthRoom.gate) {
+      SlowAuthRoom.waiting = true;
+      await SlowAuthRoom.gate;
+    }
+    return allowed;
+  },
+});
+
+const ctx = useTestServer((server) => server.define("slow-auth", SlowAuthRoom));
 
 describe("salon", () => {
   it("le premier arrivé est l'hôte ; pseudos nettoyés ; couleurs uniques", async () => {
     const room = await createRoom(ctx.colyseus);
     const a = await join(ctx.colyseus, room, "  Alice‮ ");
     const b = await join(ctx.colyseus, room, "");
-    await settle();
+    await waitFor(() => room.state.players.size === 2);
     expect(room.state.hostId).toBe(a.sessionId);
     expect(room.state.players.get(a.sessionId)!.name).toBe("Alice");
-    expect(room.state.players.get(b.sessionId)!.name).toBe("Joueur 2");
+    expect(room.state.players.get(b.sessionId)!.name).toBe("Joueur 1");
     expect(room.roomId).toMatch(/^[A-Z]{4}$/);
+  });
+
+  it("deux joueurs ne peuvent pas porter le même pseudo", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const players = [];
+    for (const name of ["Alice", "Alice", "Alice", "", ""]) players.push(await join(ctx.colyseus, room, name));
+    const names = players.map((p) => room.state.players.get(p.sessionId)!.name);
+    expect(names).toEqual(["Alice", "Alice (2)", "Alice (3)", "Joueur 1", "Joueur 2"]);
+
+    // Un départ libère le nom : le suivant le récupère au lieu de créer un doublon.
+    await players[3].room.leave();
+    await waitFor(() => room.state.players.size === 4);
+    const next = await join(ctx.colyseus, room, "");
+    expect(room.state.players.get(next.sessionId)!.name).toBe("Joueur 1");
   });
 
   it("seul l'hôte règle le match, et les valeurs sont bornées", async () => {
     const room = await createRoom(ctx.colyseus);
     const host = await join(ctx.colyseus, room);
     const guest = await join(ctx.colyseus, room);
-    guest.room.send(MSG.settings, { rounds: 7 });
-    await settle();
+    await send(room, guest, MSG.settings, { rounds: 7 });
     expect(room.state.totalRounds).toBe(ROUNDS.default);
 
     for (const [rounds, expected] of [[99, ROUNDS.max], [0, ROUNDS.min], [2.5, ROUNDS.min], [4, 4]] as const) {
-      host.room.send(MSG.settings, { rounds });
-      await settle();
+      await send(room, host, MSG.settings, { rounds });
       expect(room.state.totalRounds).toBe(expected);
     }
-    host.room.send(MSG.settings, { modeId: "__proto__" });
-    await settle();
+    await send(room, host, MSG.settings, { modeId: "__proto__" });
     expect(room.state.modeId).toBe("race");
   });
 
@@ -40,17 +72,14 @@ describe("salon", () => {
     const room = await createRoom(ctx.colyseus);
     const host = await join(ctx.colyseus, room);
     const guest = await join(ctx.colyseus, room);
-    host.room.send(MSG.startMatch);
-    await settle();
+    await send(room, host, MSG.startMatch);
     expect(room.state.phase).toBe("lobby");
 
-    guest.room.send(MSG.ready, { ready: true });
-    guest.room.send(MSG.startMatch);
-    await settle();
+    await send(room, guest, MSG.ready, { ready: true });
+    await send(room, guest, MSG.startMatch);
     expect(room.state.phase).toBe("lobby");
 
-    host.room.send(MSG.startMatch);
-    await settle();
+    await send(room, host, MSG.startMatch);
     expect(room.state.phase).toBe("countdown");
   });
 
@@ -60,8 +89,7 @@ describe("salon", () => {
     const b = await join(ctx.colyseus, room);
     await join(ctx.colyseus, room);
     await a.room.leave();
-    await settle();
-    expect(room.state.hostId).toBe(b.sessionId);
+    await waitFor(() => room.state.hostId === b.sessionId, "migration d'hôte");
   });
 
   it("personne ne rejoint en plein match", async () => {
@@ -69,6 +97,28 @@ describe("salon", () => {
     const host = await join(ctx.colyseus, room);
     await startMatch(room, [host]);
     await expect(join(ctx.colyseus, room)).rejects.toThrow();
+  });
+
+  it("un match lancé pendant l'autorisation d'un arrivant le refuse quand même", async () => {
+    const room = await createRoom(ctx.colyseus, "slow-auth");
+    const host = await join(ctx.colyseus, room);
+
+    let release!: () => void;
+    SlowAuthRoom.gate = new Promise((resolve) => (release = resolve));
+    SlowAuthRoom.waiting = false;
+    const late = join(ctx.colyseus, room, "Tardif");
+    late.catch(() => {}); // observé plus bas
+    await waitFor(() => SlowAuthRoom.waiting, "onAuth suspendu");
+
+    // onAuth a validé la phase « lobby »... et le match démarre pendant qu'il attend.
+    await send(room, host, MSG.startMatch);
+    expect(room.state.phase).toBe("countdown");
+    SlowAuthRoom.gate = null;
+    release();
+
+    await expect(late).rejects.toThrow();
+    expect(room.state.players.size).toBe(1);
+    expect(room.clients.length).toBe(1);
   });
 });
 
@@ -98,18 +148,16 @@ describe("manche", () => {
     await startMatch(room, [a, b]);
     const self = room.state.entities.get(a.assigns[0].entityId)!;
 
-    a.room.send(MSG.fire, { aimX: self.x, aimY: self.y });
-    await settle();
-    advance(room, 2);
-    await settle();
+    await shoot(room, a, a.assigns[0].entityId);
     expect(self.alive).toBe(true);
+    expect(a.shots.at(-1)!.victim).not.toBe("player");
     expect(room.state.crosshairs.get(a.assigns[0].crosshairId)!.loaded).toBe(false);
 
     const other = room.state.entities.get(b.assigns[0].entityId)!;
-    a.room.send(MSG.fire, { aimX: other.x, aimY: other.y });
-    await settle();
+    await send(room, a, MSG.fire, { aimX: other.x, aimY: other.y });
     advance(room, 2);
     expect(other.alive).toBe(true);
+    expect(a.shots).toHaveLength(1);
   });
 
   it("tuer le dernier adversaire fait gagner la manche", async () => {
@@ -118,39 +166,36 @@ describe("manche", () => {
     await startMatch(room, [a, b], 2);
     const target = room.state.entities.get(b.assigns[0].entityId)!;
 
-    a.room.send(MSG.fire, { aimX: target.x, aimY: target.y });
-    await settle();
-    advanceUntil(room, "roundEnd", 3);
-    await settle();
+    await shoot(room, a, b.assigns[0].entityId);
+    expect(room.state.phase).toBe("roundEnd");
+    await waitFor(() => a.reveals.length === 1, "révélation");
 
     expect(target.alive).toBe(false);
     expect(room.state.crosshairs.has(b.assigns[0].crosshairId)).toBe(false);
     expect(room.state.players.get(a.sessionId)!.score).toBe(1);
     expect(a.shots.at(-1)!.victim).toBe("player");
-    expect(a.reveals.at(-1)!.winnerPlayerId).toBe(a.sessionId);
+    expect(a.reveals[0].winnerPlayerId).toBe(a.sessionId);
   });
 
   it("tirer sur un PNJ le tue sans finir la manche", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
     await startMatch(room, [a, b]);
-    const { controllers } = internals(room);
-    // Un PNJ à l'arrêt : on fige l'IA en restant en phase de jeu sans avancer le temps.
+    const { controllers, roundPlayers } = internals(room);
     const [npcId, npc] = [...room.state.entities.entries()].find(([id]) => controllers.get(id)!.playerId === null)!;
 
-    a.room.send(MSG.fire, { aimX: npc.x, aimY: npc.y });
-    await settle();
-    // Le viseur part du centre : moins d'une seconde de trajet, pendant laquelle le PNJ peut bouger.
-    // On le ramène sous le viseur à chaque tick pour isoler la règle testée.
+    await send(room, a, MSG.fire, { aimX: npc.x, aimY: npc.y });
+    // Le PNJ peut bouger pendant le trajet du viseur : on le garde sous la visée
+    // à chaque tick pour isoler la règle testée.
     for (let i = 0; i < 40 && npc.alive; i++) {
-      const aim = internals(room).roundPlayers.get(a.sessionId)!;
+      const aim = roundPlayers.get(a.sessionId)!;
       npc.x = aim.aimX;
       npc.y = aim.aimY;
       room.tick(0.05);
     }
-    await settle();
+    await waitFor(() => a.shots.length === 1, "message de tir");
     expect(room.state.entities.get(npcId)!.alive).toBe(false);
-    expect(a.shots.at(-1)!.victim).toBe("npc");
+    expect(a.shots[0].victim).toBe("npc");
     expect(room.state.phase).toBe("playing");
   });
 
@@ -158,10 +203,8 @@ describe("manche", () => {
     const room = await createRoom(ctx.colyseus);
     const a = await join(ctx.colyseus, room);
     await startMatch(room, [a]);
-    a.room.send(MSG.input, { dir: 0, aimX: 0, aimY: 0 });
-    await settle();
+    await send(room, a, MSG.input, { dir: 0, aimX: 0, aimY: 0 });
     advanceUntil(room, "roundEnd", 20);
-    await settle();
     expect(room.state.entities.get(a.assigns[0].entityId)!.x).toBeGreaterThanOrEqual(RACE.finishX);
     expect(room.state.players.get(a.sessionId)!.score).toBe(1);
   });
@@ -172,7 +215,7 @@ describe("manche", () => {
     await startMatch(room, [a, b]);
     const entityId = b.assigns[0].entityId;
     await b.room.leave();
-    await settle();
+    await waitFor(() => room.state.players.size === 1, "départ traité");
     expect(internals(room).controllers.get(entityId)!.playerId).toBeNull();
     expect(room.state.crosshairs.size).toBe(1);
     const before = room.state.entities.get(entityId)!.x;
@@ -189,12 +232,10 @@ describe("match", () => {
 
     for (let round = 1; round <= 2; round++) {
       expect(room.state.round).toBe(round);
-      const target = room.state.entities.get(b.assigns.at(-1)!.entityId)!;
-      a.room.send(MSG.fire, { aimX: target.x, aimY: target.y });
-      await settle();
-      advanceUntil(room, "roundEnd", 3);
+      await shoot(room, a, b.assigns.at(-1)!.entityId);
+      expect(room.state.phase).toBe("roundEnd");
       advanceUntil(room, round < 2 ? "playing" : "podium", 15);
-      await settle();
+      if (round < 2) await waitFor(() => b.assigns.length === 2, "nouvelle attribution");
     }
 
     expect(room.state.entities.size).toBe(0);
@@ -202,7 +243,6 @@ describe("match", () => {
     advanceUntil(room, "lobby", 15);
     expect([...room.state.players.values()].every((p) => !p.ready)).toBe(true);
     expect(room.state.round).toBe(0);
-    expect(b.assigns).toHaveLength(2);
     expect(new Set(b.assigns.map((x) => x.entityId)).size).toBe(2); // nouveaux ids à chaque manche
   });
 });

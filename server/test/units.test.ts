@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { IDLE, MAX_PLAYERS, MODES, RACE, ROOM_CODE, type ModeId } from "@whosclaude/shared";
+import { IDLE, MAX_PLAYERS, MODES, NAME_MAX_LENGTH, RACE, ROOM_CODE, type ModeId } from "@whosclaude/shared";
 import { Entity } from "../src/GameState.js";
 import { createMode, MODE_FACTORIES } from "../src/modes/index.js";
 import { RaceMode } from "../src/modes/RaceMode.js";
+import { uniqueName } from "../src/names.js";
 import { releaseRoomCode, reserveRoomCode } from "../src/roomCodes.js";
 
 describe("registre des modes", () => {
@@ -61,5 +62,21 @@ describe("codes de room", () => {
     expect(codes.every((c) => pattern.test(c))).toBe(true);
     expect(new Set(codes).size).toBe(codes.length);
     codes.forEach(releaseRoomCode);
+  });
+});
+
+describe("uniqueName", () => {
+  it("suffixe les doublons et numérote les anonymes au plus petit numéro libre", () => {
+    expect(uniqueName("Alice", new Set())).toBe("Alice");
+    expect(uniqueName("Alice", new Set(["Alice"]))).toBe("Alice (2)");
+    expect(uniqueName("Alice", new Set(["Alice", "Alice (2)"]))).toBe("Alice (3)");
+    expect(uniqueName("", new Set(["Joueur 1", "Joueur 3"]))).toBe("Joueur 2");
+  });
+
+  it("ne dépasse jamais la longueur maximale, même suffixé", () => {
+    const long = "é".repeat(NAME_MAX_LENGTH);
+    const name = uniqueName(long, new Set([long]));
+    expect(Array.from(name).length).toBeLessThanOrEqual(NAME_MAX_LENGTH);
+    expect(name.endsWith(" (2)")).toBe(true);
   });
 });

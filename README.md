@@ -79,5 +79,11 @@ npm test
   Le temps est piloté par `room.tick(dt)` (`GameRoom.autoTick = false`), et les invariants
   (un seul hôte, couleurs uniques, viseurs dans l'arène…) sont vérifiés à chaque tick.
 - `server/test/security.test.ts` : anti-fuite (un client espion ne doit rien apprendre
-  avant la révélation), fuzzing des messages réseau et des options de connexion,
-  budget de taille de l'état et des patches.
+  avant la révélation, ni par les messages ni par le flux d'état), fuzzing des messages
+  réseau depuis le salon et en pleine manche (`server/test/fuzz.ts`), budget de taille
+  de l'état et des patches.
+- `client/test` : écrans de salon et de podium (happy-dom).
+
+Les tests n'attendent jamais « au cas où » : `send()` attend que le serveur ait traité
+le message, `waitFor()` attend une condition, `syncState()` attend que le client ait
+reçu l'état. `npm run test:coverage` affiche la couverture.

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { Encoder } from "@colyseus/schema";
+import { getStateCallbacks } from "colyseus.js";
 import {
-  ENTITY_FIELDS, MAX_PLAYERS, MSG, NAME_MAX_LENGTH, PLAYER_INFO_FIELDS, RACE, TICK_RATE,
+  ARENA, ENTITY_FIELDS, MAX_PLAYERS, MSG, NAME_MAX_LENGTH, PLAYER_INFO_FIELDS, RACE, TICK_RATE, type Phase,
 } from "@whosclaude/shared";
 import { Crosshair, Entity, GameState, PlayerInfo } from "../src/GameState.js";
-import { advance, checkInvariants, createRoom, internals, join, settle, startMatch, useTestServer } from "./helpers.js";
+import type { GameRoom } from "../src/GameRoom.js";
+import {
+  advance, createRoom, internals, join, send, shoot, startMatch, syncState, useTestServer, waitFor,
+} from "./helpers.js";
+import { runCommands, sequenceArb } from "./fuzz.js";
 
 const ctx = useTestServer();
 
@@ -15,85 +20,141 @@ describe("anti-fuite : rien ne distingue un joueur d'un PNJ avant la révélatio
     expect(Object.keys(new PlayerInfo().toJSON()).sort()).toEqual([...PLAYER_INFO_FIELDS].sort());
   });
 
-  it("un client espion ne reçoit rien sur les entités des autres joueurs", async () => {
+  it("messages : un client espion ne reçoit rien sur les entités des autres joueurs", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, b, spy] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
     await startMatch(room, [a, b, spy]);
-    a.room.send(MSG.input, { dir: 0, aimX: 300, aimY: 300 });
-    b.room.send(MSG.input, { dir: 0, aimX: 500, aimY: 200 });
-    await settle();
+    await send(room, a, MSG.input, { dir: 0, aimX: 300, aimY: 300 });
+    await send(room, b, MSG.input, { dir: 0, aimX: 500, aimY: 200 });
     advance(room, 2);
-    const target = room.state.entities.get(b.assigns[0].entityId)!;
-    a.room.send(MSG.fire, { aimX: target.x, aimY: target.y }); // déclenche un message "shot"
-    await settle();
-    advance(room, 1);
-    await settle(100);
+    await shoot(room, a, b.assigns[0].entityId);
+    finishRound(room); // a franchit l'arrivée (2 survivants : le tir seul ne clôt pas la manche)
+    await waitFor(() => spy.reveals.length === 1, "révélation reçue par l'espion");
 
     const revealIndex = spy.log.findIndex((m) => m.type === MSG.reveal);
-    const beforeReveal = spy.log.slice(0, revealIndex === -1 ? undefined : revealIndex);
+    const beforeReveal = spy.log.slice(0, revealIndex);
     expect(new Set(beforeReveal.map((m) => m.type))).toEqual(new Set([MSG.assign, MSG.shot]));
     expect(spy.assigns).toHaveLength(1);
 
-    const othersEntityIds = [a, b].map((p) => p.assigns[0].entityId);
-    const othersCrosshairIds = [a, b].map((p) => p.assigns[0].crosshairId);
     const transcript = JSON.stringify(beforeReveal);
-    for (const id of [...othersEntityIds, ...othersCrosshairIds]) expect(transcript).not.toContain(id);
+    for (const p of [a, b]) {
+      expect(transcript).not.toContain(p.assigns[0].entityId);
+      expect(transcript).not.toContain(p.assigns[0].crosshairId);
+    }
   });
 
-  it("dans l'état décodé côté client, une entité de joueur a la même forme qu'un PNJ", async () => {
+  it("flux d'état : les entités des joueurs ne changent que des champs qui changent aussi chez les PNJ", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const [a, b, spy] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+
+    // L'espion enregistre, entité par entité, quels champs ont changé jusqu'à la révélation.
+    const changed = new Map<string, Set<string>>();
+    const $ = getStateCallbacks(spy.room);
+    $(spy.room.state).entities.onAdd((entity: any, id: string) => {
+      const fields = new Set<string>();
+      changed.set(id, fields);
+      for (const field of ENTITY_FIELDS) {
+        $(entity).listen(field, (_value: unknown, previous: unknown) => {
+          if (previous !== undefined && spy.reveals.length === 0) fields.add(field);
+        });
+      }
+    });
+
+    await startMatch(room, [a, b, spy]);
+    await send(room, a, MSG.input, { dir: 0, aimX: 100, aimY: 100 });
+    await send(room, b, MSG.input, { dir: 0, aimX: 800, aimY: 500 });
+    advance(room, 3);
+    await syncState(room, spy);
+    await send(room, a, MSG.input, { dir: -1, aimX: 100, aimY: 100 });
+    advance(room, 1);
+    await syncState(room, spy);
+
+    // Un PNJ et un joueur meurent : le champ `alive` change dans les deux camps.
+    // Le PNJ visé est mis en pause le temps du tir, pour qu'il ne sorte pas du viseur.
+    const { controllers } = internals(room);
+    const npcId = [...room.state.entities.keys()].find((id) => controllers.get(id)!.playerId === null)!;
+    (controllers.get(npcId) as unknown as { timer: number }).timer = 999;
+    room.state.entities.get(npcId)!.dir = -1;
+    await shoot(room, spy, npcId);
+    await shoot(room, a, b.assigns[0].entityId);
+    await syncState(room, spy);
+    expect(room.state.entities.get(npcId)!.alive).toBe(false);
+
+    await send(room, a, MSG.input, { dir: 0, aimX: 100, aimY: 100 });
+    finishRound(room);
+    await waitFor(() => spy.reveals.length === 1, "révélation");
+
+    const playerIds = new Set(spy.reveals[0].players.map((p) => p.entityId));
+    const npcFields = new Set<string>();
+    for (const [id, fields] of changed) if (!playerIds.has(id)) fields.forEach((f) => npcFields.add(f));
+    for (const id of playerIds) {
+      for (const field of changed.get(id) ?? []) expect(npcFields, `champ « ${field} » propre aux joueurs`).toContain(field);
+    }
+    expect(npcFields).toContain("x");
+  });
+
+  it("état décodé : une entité de joueur a la même forme qu'un PNJ, et rien ne les relie aux joueurs", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, spy] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
     await startMatch(room, [a, spy]);
-    await settle(100);
+    await waitFor(() => spy.room.state.entities.size === RACE.entityCount, "entités reçues");
     const seen = spy.room.state.entities as Map<string, { toJSON(): object }>;
     const shapes = new Set([...seen.values()].map((e) => Object.keys(e.toJSON()).sort().join(",")));
-    expect(seen.size).toBe(RACE.entityCount);
     expect(shapes.size).toBe(1);
 
-    // Les identifiants ont tous le même format : rien ne permet de trier joueurs et PNJ.
     const ids = [...seen.keys()];
     expect(ids.every((id) => /^[a-z0-9]+$/.test(id))).toBe(true);
-    // Aucune donnée « joueur » n'est rattachée à une entité dans la liste publique.
     const publicPlayers = JSON.stringify(spy.room.state.players);
     for (const id of ids) expect(publicPlayers).not.toContain(id);
   });
 });
 
-describe("fuzzing des messages réseau", () => {
-  const types = [MSG.input, MSG.fire, MSG.settings, MSG.ready, MSG.startMatch, "inconnu"];
+/** Avance jusqu'à la fin de manche (un joueur qui avance finit par franchir l'arrivée). */
+function finishRound(room: GameRoom) {
+  for (let i = 0; i < 30 * TICK_RATE && room.state.phase === "playing"; i++) advance(room, 1 / TICK_RATE);
+  expect(room.state.phase).toBe("roundEnd");
+}
 
-  it("des messages arbitraires ne cassent ni la room ni ses invariants", async () => {
+// --- Fuzzing ---
+
+describe("fuzzing des messages réseau", () => {
+  it("depuis le salon : jamais d'erreur, et une bonne part des séquences atteint une manche", async () => {
+    let runs = 0;
+    let reachedPlaying = 0;
     await fc.assert(
-      fc.asyncProperty(
-        fc.array(
-          fc.record({
-            from: fc.nat(1),
-            type: fc.constantFrom(...types),
-            payload: fc.oneof(
-              fc.anything(),
-              fc.record({ dir: fc.anything(), aimX: fc.double(), aimY: fc.double() }),
-              fc.record({ rounds: fc.oneof(fc.integer(), fc.double()), modeId: fc.string() }),
-            ),
-            ticks: fc.nat(10),
-          }),
-          { minLength: 1, maxLength: 25 },
-        ),
-        async (commands) => {
-          const room = await createRoom(ctx.colyseus);
-          const players = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
-          for (const { from, type, payload, ticks } of commands) {
-            players[from].room.send(type, payload);
-            await settle(5);
-            advance(room, ticks / TICK_RATE);
-          }
-          await settle();
-          checkInvariants(room);
-          expect(room.clients.length).toBe(2); // personne n'a été déconnecté par une erreur
-          await Promise.all(players.map((p) => p.room.leave()));
-        },
-      ),
-      { numRuns: 25 },
+      fc.asyncProperty(sequenceArb(2, { leaves: false, launch: true }), async (commands) => {
+        const room = await createRoom(ctx.colyseus);
+        const players = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+        const phases = await runCommands(room, players, commands);
+        runs++;
+        if (phases.has("playing")) reachedPlaying++;
+        await Promise.all(players.map((p) => p.room.leave()));
+      }),
+      { numRuns: 60 },
     );
+    console.log(`fuzz salon : ${reachedPlaying}/${runs} séquences atteignent une manche`);
+    // Garde-fou : si les générateurs dérivent, le fuzz ne testerait plus que le salon.
+    // ~47 % en moyenne sur 60 runs : 25 % laisse plus de 3 écarts-types de marge.
+    expect(reachedPlaying / runs).toBeGreaterThanOrEqual(0.25);
+  });
+
+  it("en pleine manche, à 3 joueurs : tirs, éliminations, départs, enchaînement des manches", async () => {
+    const reached = new Map<Phase, number>();
+    await fc.assert(
+      // 1 manche : on atteint vite podium et salon ; 2 manches : on teste l'enchaînement.
+      fc.asyncProperty(fc.constantFrom(1, 2), sequenceArb(3, { leaves: true, launch: false }), async (rounds, commands) => {
+        const room = await createRoom(ctx.colyseus);
+        const players = [await join(ctx.colyseus, room), await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+        await startMatch(room, players, rounds);
+        const phases = await runCommands(room, players, commands);
+        for (const phase of phases) reached.set(phase, (reached.get(phase) ?? 0) + 1);
+        await Promise.all(players.map((p) => p.room.connection.isOpen && p.room.leave()));
+      }),
+      { numRuns: 60 },
+    );
+    console.log("fuzz manche, phases atteintes :", Object.fromEntries(reached));
+    expect(reached.get("roundEnd") ?? 0).toBeGreaterThan(0);
+    expect(reached.get("podium") ?? 0).toBeGreaterThan(0);
   });
 
   it("des options de connexion arbitraires donnent toujours un pseudo valide", async () => {
@@ -101,7 +162,7 @@ describe("fuzzing des messages réseau", () => {
       fc.asyncProperty(fc.anything(), async (name) => {
         const room = await createRoom(ctx.colyseus);
         const clientRoom = await ctx.colyseus.connectTo(room, { name });
-        await settle(5);
+        await waitFor(() => room.state.players.has(clientRoom.sessionId), "arrivée");
         const info = room.state.players.get(clientRoom.sessionId)!;
         expect(info.name.length).toBeGreaterThan(0);
         expect(Array.from(info.name).length).toBeLessThanOrEqual(NAME_MAX_LENGTH);
@@ -156,5 +217,3 @@ describe("budget réseau", () => {
     expect(patch).toBeLessThan(500);
   });
 });
-
-void internals;

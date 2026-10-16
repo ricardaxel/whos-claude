@@ -19,8 +19,8 @@ export class LobbyScreen {
   private startButton = byId<HTMLButtonElement>("lobby-start");
 
   constructor(onLeave: () => void) {
-    for (const info of Object.values(MODES)) this.mode.add(new Option(info.name, info.id));
-    for (let n = ROUNDS.min; n <= ROUNDS.max; n++) this.rounds.add(new Option(String(n), String(n)));
+    for (const info of Object.values(MODES)) this.mode.add(option(info.name, info.id));
+    for (let n = ROUNDS.min; n <= ROUNDS.max; n++) this.rounds.add(option(String(n), String(n)));
 
     this.mode.addEventListener("change", () => {
       if (isModeId(this.mode.value)) this.sendSettings({ modeId: this.mode.value });
@@ -94,4 +94,11 @@ export class LobbyScreen {
       this.copyButton.textContent = url; // presse-papiers refusé : on affiche le lien
     }
   }
+}
+
+function option(label: string, value: string) {
+  const element = document.createElement("option");
+  element.textContent = label;
+  element.value = value;
+  return element;
 }
