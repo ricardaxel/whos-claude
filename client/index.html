@@ -4,37 +4,84 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>WhosClaude</title>
+    <!-- Police pixel proche de celle des Dragon Quest ; sans réseau, repli sur une police à chasse fixe. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet" />
     <style>
-      html, body { margin: 0; height: 100%; background: #111; color: #eee; overflow: hidden; }
-      body { display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
+      :root {
+        --ink: #f4f1ea;
+        --ink-dim: #a9a3b5;
+        --gold: #f2c45a;
+        --ok: #7fd36e;
+        --danger: #ff7a6a;
+        --window: #07050b;
+        --font: "DotGothic16", "Courier New", monospace;
+      }
+      html, body { margin: 0; height: 100%; background: #0b090f; color: var(--ink); overflow: hidden; }
+      body { display: flex; align-items: center; justify-content: center; font-family: var(--font); font-size: 18px; }
       #game { width: 100%; height: 100%; touch-action: none; }
 
-      /* --- Écrans de menu (HTML simple, superposés au jeu) --- */
+      /* --- Écrans de menu : fenêtres façon Dragon Quest, sur fond de salle de donjon --- */
       .screen {
-        display: none; position: fixed; inset: 0; z-index: 20; overflow-y: auto;
-        background: rgba(17, 17, 17, 0.96); padding: 24px 16px; box-sizing: border-box;
+        display: none; position: fixed; inset: 0; z-index: 20; overflow-y: auto; box-sizing: border-box;
+        padding: 28px 16px;
+        background: linear-gradient(rgba(8, 6, 12, 0.7), rgba(8, 6, 12, 0.82)), var(--backdrop, none) center / cover no-repeat, #0b090f;
+        image-rendering: pixelated;
       }
       body[data-screen="home"] #screen-home,
       body[data-screen="lobby"] #screen-lobby,
       body[data-screen="podium"] #screen-podium { display: block; }
-      .panel { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
-      h1, h2 { margin: 0; }
-      label { font-size: 13px; color: #aaa; display: flex; flex-direction: column; gap: 4px; }
-      input, select, button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #444; background: #222; color: #eee; }
-      button { cursor: pointer; }
-      button.primary { background: #3d7bfd; border-color: #3d7bfd; color: #fff; font-weight: bold; }
-      button:disabled, select:disabled { opacity: 0.5; cursor: default; }
-      .row { display: flex; gap: 8px; }
+      .panel { max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+      /* Fenêtre : fond noir, double liseré blanc, coins arrondis, titre posé sur le cadre. */
+      .window {
+        position: relative; background: var(--window); color: var(--ink);
+        border: 5px double var(--ink); border-radius: 8px; outline: 3px solid #000;
+        padding: 18px 18px 14px; display: flex; flex-direction: column; gap: 12px;
+      }
+      .window > .title {
+        position: absolute; top: -0.85em; left: 14px; padding: 0 8px;
+        background: var(--window); font-size: 16px; color: var(--ink);
+      }
+      h1 { margin: 0; font-size: 40px; font-weight: normal; text-align: center; color: var(--gold); text-shadow: 3px 3px 0 #000; letter-spacing: 2px; }
+      .subtitle { text-align: center; color: var(--ink-dim); font-size: 15px; margin-top: -14px; }
+      label { font-size: 15px; color: var(--ink-dim); display: flex; flex-direction: column; gap: 6px; }
+
+      input, select {
+        font: inherit; color: var(--ink); background: #000; padding: 8px 10px;
+        border: 2px solid var(--ink); border-radius: 4px; outline: none;
+      }
+      input:focus, select:focus { border-color: var(--gold); }
+      select:disabled { color: var(--ink-dim); border-color: var(--ink-dim); }
+
+      /* Boutons : commandes de menu, avec le curseur ▶ devant celle survolée ou sélectionnée. */
+      button {
+        font: inherit; color: var(--ink); background: none; border: none; cursor: pointer;
+        text-align: left; padding: 4px 4px 4px 26px; position: relative;
+      }
+      button::before { content: "▶"; position: absolute; left: 4px; visibility: hidden; color: var(--ink); }
+      button:hover::before, button:focus-visible::before { visibility: visible; animation: blink 0.8s steps(1) infinite; }
+      button:focus-visible { outline: none; }
+      button.primary { color: var(--gold); }
+      button:disabled { color: #5d5868; cursor: default; }
+      button:disabled::before { visibility: hidden; }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      .row { display: flex; gap: 10px; align-items: center; }
       .row > * { flex: 1; }
-      .error { color: #ff7a7a; min-height: 1.2em; font-size: 14px; }
-      .muted { color: #999; font-size: 13px; }
-      .code { font-size: 32px; font-weight: bold; letter-spacing: 6px; }
-      ul.players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-      ul.players li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #1c1c1c; border-radius: 8px; }
-      .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+      .error { color: var(--danger); min-height: 1.2em; font-size: 15px; }
+      .muted { color: var(--ink-dim); font-size: 15px; }
+      .code { font-size: 34px; letter-spacing: 8px; color: var(--gold); }
+
+      ul.players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+      ul.players li { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+      .dot { width: 12px; height: 12px; flex: none; outline: 2px solid #000; box-shadow: 0 0 0 2px var(--ink); }
       .grow { flex: 1; }
-      .badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #333; }
-      .badge.ok { background: #2f6b3a; }
+      .badge { font-size: 14px; color: var(--ink-dim); }
+      .badge::before { content: "["; } .badge::after { content: "]"; }
+      .badge.ok { color: var(--ok); }
+      #podium-players li:first-child .grow { color: var(--gold); }
 
       /* --- Contrôles tactiles : seulement en jeu, sur écran tactile --- */
       #touch-controls, #rotate-hint { display: none; }
@@ -45,23 +92,25 @@
         body[data-screen="game"] #rotate-hint { display: block; }
       }
       .touch-btn {
-        position: fixed; z-index: 10;
-        border: 2px solid rgba(255, 255, 255, 0.6); border-radius: 50%;
-        background: rgba(0, 0, 0, 0.35); color: #fff; font-weight: bold; font-size: 15px;
+        position: fixed; z-index: 10; text-align: center; padding: 0;
+        border: 3px solid var(--ink); border-radius: 50%; outline: 2px solid #000;
+        background: rgba(7, 5, 11, 0.6); color: var(--ink); font-size: 15px;
         touch-action: none; user-select: none; -webkit-user-select: none;
         -webkit-tap-highlight-color: transparent;
       }
-      .touch-btn:active { background: rgba(255, 255, 255, 0.3); }
+      .touch-btn::before { display: none; }
+      .touch-btn:active { background: rgba(244, 241, 234, 0.25); }
       #touch-advance { left: 16px; bottom: 16px; width: 96px; height: 96px; }
-      #touch-sprint { left: 124px; bottom: 16px; width: 64px; height: 64px; font-size: 13px; border-color: #ffb23d; }
-      #touch-fire { right: 16px; bottom: 16px; width: 96px; height: 96px; border-color: #ff5a5a; }
+      #touch-sprint { left: 124px; bottom: 16px; width: 64px; height: 64px; font-size: 13px; border-color: var(--gold); }
+      #touch-fire { right: 16px; bottom: 16px; width: 96px; height: 96px; border-color: var(--danger); }
       #touch-stab { right: 16px; bottom: 16px; width: 96px; height: 96px; border-color: #c77dff; }
       /* Boutons propres à chaque mode. En assassins, on se déplace en glissant le doigt sur le jeu. */
       body:not([data-mode="race"]) :is(#touch-advance, #touch-sprint, #touch-fire) { display: none; }
       body:not([data-mode="assassins"]) #touch-stab { display: none; }
       #rotate-hint {
-        position: fixed; top: 24px; left: 0; right: 0;
-        text-align: center; color: #bbb; font-size: 14px;
+        position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
+        background: var(--window); border: 3px double var(--ink); border-radius: 6px;
+        padding: 6px 12px; font-size: 14px; white-space: nowrap;
       }
     </style>
   </head>
@@ -71,48 +120,67 @@
     <section id="screen-home" class="screen">
       <div class="panel">
         <h1>WhosClaude</h1>
-        <label>Ton pseudo
-          <input id="home-name" maxlength="16" autocomplete="nickname" placeholder="Pseudo" />
-        </label>
-        <button id="home-create" class="primary">Créer une partie</button>
-        <div class="muted">ou rejoindre celle d'un ami :</div>
-        <div class="row">
-          <input id="home-code" maxlength="4" placeholder="CODE" autocapitalize="characters" style="text-transform: uppercase" />
-          <button id="home-join">Rejoindre</button>
+        <div class="subtitle">Qui se cache dans la foule ?</div>
+        <div class="window">
+          <span class="title">Aventurier</span>
+          <label>Ton pseudo
+            <input id="home-name" maxlength="16" autocomplete="nickname" placeholder="Pseudo" />
+          </label>
+          <button id="home-create" class="primary">Créer une partie</button>
         </div>
-        <div id="home-error" class="error"></div>
+        <div class="window">
+          <span class="title">Rejoindre</span>
+          <div class="muted">ou rejoindre celle d'un ami :</div>
+          <div class="row">
+            <input id="home-code" maxlength="4" placeholder="CODE" autocapitalize="characters" style="text-transform: uppercase" />
+            <button id="home-join">Rejoindre</button>
+          </div>
+          <div id="home-error" class="error"></div>
+        </div>
       </div>
     </section>
 
     <section id="screen-lobby" class="screen">
       <div class="panel">
-        <div class="muted">Code de la partie</div>
-        <div class="row" style="align-items: center">
-          <div id="lobby-code" class="code"></div>
-          <button id="lobby-copy">Copier le lien</button>
+        <div class="window">
+          <span class="title">Code de la partie</span>
+          <div class="row">
+            <div id="lobby-code" class="code"></div>
+            <button id="lobby-copy">Copier le lien</button>
+          </div>
         </div>
-        <h2>Joueurs</h2>
-        <ul id="lobby-players" class="players"></ul>
-        <h2>Réglages</h2>
-        <label>Mode
-          <select id="lobby-mode"></select>
-        </label>
-        <div id="lobby-mode-description" class="muted"></div>
-        <label>Nombre de manches
-          <select id="lobby-rounds"></select>
-        </label>
-        <div id="lobby-host-hint" class="muted"></div>
-        <button id="lobby-ready"></button>
-        <button id="lobby-start" class="primary">Lancer le match</button>
-        <button id="lobby-leave">Quitter</button>
+        <div class="window">
+          <span class="title">Joueurs</span>
+          <ul id="lobby-players" class="players"></ul>
+        </div>
+        <div class="window">
+          <span class="title">Réglages</span>
+          <label>Mode
+            <select id="lobby-mode"></select>
+          </label>
+          <div id="lobby-mode-description" class="muted"></div>
+          <label>Nombre de manches
+            <select id="lobby-rounds"></select>
+          </label>
+        </div>
+        <div class="window">
+          <span class="title">Commandes</span>
+          <div id="lobby-host-hint" class="muted"></div>
+          <button id="lobby-ready"></button>
+          <button id="lobby-start" class="primary">Lancer le match</button>
+          <button id="lobby-leave">Quitter</button>
+        </div>
       </div>
     </section>
 
     <section id="screen-podium" class="screen">
       <div class="panel">
         <h1>Podium</h1>
-        <ul id="podium-players" class="players"></ul>
-        <div class="muted">Retour au salon dans quelques secondes…</div>
+        <div class="window">
+          <span class="title">Classement</span>
+          <ul id="podium-players" class="players"></ul>
+        </div>
+        <div class="muted" style="text-align: center">Retour au salon dans quelques secondes…</div>
       </div>
     </section>
 

@@ -14,10 +14,11 @@ import type { InputFrame } from "./input/types";
 import { DEPTH, MODE_VIEWS, type ModeView } from "./modes/ModeView";
 import { facingFromDir, WALK_CYCLE, WALK_FRAME_MS, type Facing } from "./sprites/characters";
 import { frameName, lookTexture, registerCharacterTextures } from "./sprites/textures";
+import { CROSSHAIR_EMPTY, CROSSHAIR_LOADED, deathEffect, knifeEffect, registerEffectTextures, shotEffect } from "./effects";
+import { GOLD, INK, PIXEL_FONT, RetroWindow } from "./ui/retro";
 
 /** Vitesse de convergence de l'interpolation (plus haut = plus réactif). */
 const SMOOTHING = 12;
-const CROSSHAIR_RADIUS = 14;
 
 /** Ce que la session peut demander à la scène. */
 export interface SceneHooks {
@@ -50,7 +51,7 @@ export class GameScene extends Phaser.Scene {
   private created = false;
   private inputs!: InputManager;
   private entities = new Map<string, CharacterView>();
-  private crosshairs = new Map<string, View<Phaser.GameObjects.Graphics>>();
+  private crosshairs = new Map<string, View<Phaser.GameObjects.Image>>();
   private myEntityId?: string;
   private myCrosshairId?: string;
   private aimSynced = false;
@@ -60,10 +61,10 @@ export class GameScene extends Phaser.Scene {
   /** Dernière direction non nulle de chaque entité : orientation du coup de couteau. */
   private facing = new Map<string, number>();
 
-  private aimGhost!: Phaser.GameObjects.Arc;
-  private status!: Phaser.GameObjects.Text;
-  private banner!: Phaser.GameObjects.Text;
-  private toast!: Phaser.GameObjects.Text;
+  private aimGhost!: Phaser.GameObjects.Rectangle;
+  private status!: RetroWindow;
+  private banner!: RetroWindow;
+  private toast!: RetroWindow;
   private revealObjects: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
@@ -100,20 +101,14 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.inputs.destroy());
     this.input.setDefaultCursor("none");
     registerCharacterTextures(this);
+    registerEffectTextures(this);
 
-    this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(DEPTH.aimGhost);
-    this.status = this.add.text(12, 10, "", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(DEPTH.hud);
-    this.toast = this.add
-      .text(ARENA.width / 2, 40, "", { fontFamily: "sans-serif", fontSize: "22px", fontStyle: "bold", color: "#ffffff", stroke: "#000000", strokeThickness: 4 })
-      .setOrigin(0.5)
-      .setDepth(DEPTH.hud);
-    this.banner = this.add
-      .text(ARENA.width / 2, ARENA.height / 2, "", {
-        fontFamily: "sans-serif", fontSize: "56px", fontStyle: "bold", color: "#ffffff",
-        stroke: "#000000", strokeThickness: 6, align: "center",
-      })
-      .setOrigin(0.5)
-      .setDepth(DEPTH.hud);
+    // Point de visée local : un petit carré, comme un curseur de vieux RPG.
+    this.aimGhost = this.add.rectangle(0, 0, 4, 4, 0xffffff, 0.9).setStrokeStyle(1, 0x000000).setVisible(false).setDepth(DEPTH.aimGhost);
+    // Interface en fenêtres façon Dragon Quest : bandeau en haut, messages dessous, bannière au centre.
+    this.status = new RetroWindow(this, ARENA.width / 2, 10, { fontSize: 14, anchor: "top", depth: DEPTH.hud });
+    this.toast = new RetroWindow(this, ARENA.width / 2, 52, { fontSize: 18, anchor: "top", depth: DEPTH.hud });
+    this.banner = new RetroWindow(this, ARENA.width / 2, ARENA.height / 2, { fontSize: 40, anchor: "center", depth: DEPTH.hud });
 
     this.created = true;
     if (this.room) this.bindRoom(this.room);
@@ -147,10 +142,13 @@ export class GameScene extends Phaser.Scene {
         if (entity.dir >= 0) this.facing.set(id, entity.dir);
       });
       $(entity).listen("look", (look: number) => sprite.setTexture(lookTexture(look), frameName(view.facing, 0)));
-      $(entity).listen("alive", (alive: boolean) => {
+      $(entity).listen("alive", (alive: boolean, previous?: boolean) => {
         view.alive = alive;
+        if (alive) return;
         // Un mort de PNJ ressemble exactement à un mort de joueur : couché et grisé.
-        if (!alive) sprite.setFrame(frameName(view.facing, 0)).setTint(0x8a8a8a).setAngle(-90).setAlpha(0.85).setDepth(DEPTH.deadBody);
+        sprite.setFrame(frameName(view.facing, 0));
+        if (previous === true) deathEffect(this, sprite);
+        else sprite.setTint(0x8a8a8a).setAngle(-90).setAlpha(0.85).setDepth(DEPTH.deadBody); // déjà mort à l'arrivée
       });
     });
 
@@ -161,10 +159,12 @@ export class GameScene extends Phaser.Scene {
     });
 
     $(room.state).crosshairs.onAdd((crosshair: any, id: string) => {
-      const graphics = this.add.graphics().setPosition(crosshair.x, crosshair.y).setDepth(DEPTH.crosshair);
-      const view = { object: graphics, targetX: crosshair.x, targetY: crosshair.y };
+      const image = this.add.image(crosshair.x, crosshair.y, CROSSHAIR_LOADED).setScale(2).setDepth(DEPTH.crosshair);
+      const view = { object: image, targetX: crosshair.x, targetY: crosshair.y };
       this.crosshairs.set(id, view);
-      const redraw = () => drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
+      // Viseur pixel teinté à la couleur du joueur ; centre plein = balle disponible.
+      const redraw = () =>
+        image.setTexture(crosshair.loaded ? CROSSHAIR_LOADED : CROSSHAIR_EMPTY).setTint(CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff);
       $(crosshair).onChange(() => {
         view.targetX = crosshair.x;
         view.targetY = crosshair.y;
@@ -217,21 +217,25 @@ export class GameScene extends Phaser.Scene {
   private refreshBanner() {
     const state = this.room?.state;
     if (!state) return;
-    if (state.phase === "countdown") this.banner.setText(String(state.countdown));
-    else if (state.phase === "playing") this.flash(this.banner, "Partez !");
-    else if (state.phase !== "roundEnd") this.banner.setText("");
+    if (state.phase === "countdown") {
+      if (this.banner.text !== String(state.countdown)) this.banner.setColor(INK).setText(String(state.countdown)).pop();
+    } else if (state.phase === "playing") {
+      this.flash(this.banner.setColor(GOLD), "Partez !").pop();
+    } else if (state.phase !== "roundEnd") {
+      this.banner.setText("");
+    }
   }
 
-  private flash(text: Phaser.GameObjects.Text, content: string, ms = 800) {
-    text.setText(content);
+  private flash(window: RetroWindow, content: string, ms = 800) {
+    window.setText(content);
     this.time.delayedCall(ms, () => {
-      if (text.text === content) text.setText("");
+      if (window.text === content) window.setText("");
     });
+    return window;
   }
 
   private showShot({ x, y, victim }: ShotMessage) {
-    const burst = this.add.circle(x, y, 6, 0xffffff, 0.9).setDepth(30);
-    this.tweens.add({ targets: burst, radius: 28, alpha: 0, duration: 350, onComplete: () => burst.destroy() });
+    shotEffect(this, x, y, victim !== null);
     const message = victim === "player" ? "Un joueur est éliminé !" : victim === "npc" ? "Raté : c'était un PNJ" : "Tir dans le vide";
     this.flash(this.toast, message, 1800);
   }
@@ -244,14 +248,7 @@ export class GameScene extends Phaser.Scene {
     const view = this.entities.get(entityId);
     if (view) {
       const [vx, vy] = DIR_VECTORS[this.facing.get(entityId) ?? 0];
-      const angle = Math.atan2(vy, vx);
-      const reach = ENTITY_RADIUS + 10;
-      const slash = this.add.graphics().setPosition(view.object.x, view.object.y).setDepth(DEPTH.effect);
-      slash.lineStyle(4, 0xffffff, 1).beginPath();
-      slash.arc(0, 0, reach, angle - 1, angle + 1);
-      slash.strokePath();
-      slash.fillStyle(0xfff3c4, 0.9).fillCircle(Math.cos(angle) * reach, Math.sin(angle) * reach, 5);
-      this.tweens.add({ targets: slash, alpha: 0, scale: 1.3, duration: 400, onComplete: () => slash.destroy() });
+      knifeEffect(this, view.object.x, view.object.y, Math.atan2(vy, vx));
     }
     // Seule la mort d'un joueur est annoncée : un PNJ tué dans l'ombre passe inaperçu.
     if (victim === "player") this.flash(this.toast, "Un joueur a été poignardé !", 1800);
@@ -266,12 +263,12 @@ export class GameScene extends Phaser.Scene {
       if (!view || !info) continue;
       const isWinner = entityId === winnerEntityId;
       const ring = this.add
-        .circle(view.targetX, view.targetY, ENTITY_RADIUS + (isWinner ? 9 : 5))
-        .setStrokeStyle(isWinner ? 5 : 3, isWinner ? 0xffd34d : CROSSHAIR_COLORS[info.color] ?? 0xffffff)
+        .circle(view.targetX, view.targetY, ENTITY_RADIUS + (isWinner ? 10 : 6))
+        .setStrokeStyle(isWinner ? 4 : 3, isWinner ? 0xf2c45a : CROSSHAIR_COLORS[info.color] ?? 0xffffff)
         .setDepth(DEPTH.reveal);
       const label = this.add
-        .text(view.targetX, view.targetY - ENTITY_RADIUS - 14, info.name, {
-          fontFamily: "sans-serif", fontSize: "14px", color: "#ffffff", stroke: "#000000", strokeThickness: 3,
+        .text(view.targetX, view.targetY - ENTITY_RADIUS - 12, info.name, {
+          fontFamily: PIXEL_FONT, fontSize: "14px", color: isWinner ? GOLD : INK, stroke: "#000000", strokeThickness: 4,
         })
         .setOrigin(0.5, 1)
         .setDepth(DEPTH.reveal);
@@ -280,7 +277,7 @@ export class GameScene extends Phaser.Scene {
 
     const winner = winnerPlayerId ? state.players.get(winnerPlayerId) : undefined;
     const text = !winnerPlayerId ? "Personne\nne gagne" : winnerPlayerId === this.room!.sessionId ? "Victoire !" : `Victoire de\n${winner?.name ?? "?"}`;
-    this.banner.setText(text);
+    this.banner.setColor(winnerPlayerId === this.room!.sessionId ? GOLD : INK).setText(text).pop();
   }
 
   private clearResults() {
@@ -347,16 +344,6 @@ export class GameScene extends Phaser.Scene {
   }
 }
 
-function drawCrosshair(g: Phaser.GameObjects.Graphics, color: number, loaded: boolean) {
-  const r = CROSSHAIR_RADIUS;
-  g.clear();
-  g.lineStyle(2.5, color, 1).strokeCircle(0, 0, r);
-  g.lineBetween(-r - 5, 0, -r + 5, 0).lineBetween(r - 5, 0, r + 5, 0);
-  g.lineBetween(0, -r - 5, 0, -r + 5).lineBetween(0, r - 5, 0, r + 5);
-  // Point plein = balle disponible ; vide = déjà tiré.
-  if (loaded) g.fillStyle(color, 1).fillCircle(0, 0, 3);
-  else g.lineStyle(1.5, color, 0.8).strokeCircle(0, 0, 3);
-}
 
 function formatTime(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
