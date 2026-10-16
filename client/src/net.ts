@@ -1,10 +1,14 @@
 import { Client, Room } from "colyseus.js";
-import { GameStateShape, JoinOptions, ROOM_NAME, SERVER_PORT } from "@whosclaude/shared";
+import { GAME_SERVER_PATH, GameStateShape, JoinOptions, ROOM_NAME } from "@whosclaude/shared";
 
 /** L'état reçu (décodé par réflexion) a la forme partagée, implémentée par le serveur. */
 export type GameRoom = Room<GameStateShape>;
 
-const client = new Client(`ws://${location.hostname}:${SERVER_PORT}`);
+/**
+ * Le serveur de jeu est joint sur la même origine que la page, sous /colyseus : Caddy fait
+ * suivre en production (HTTPS → WSS), Vite en développement. Une seule adresse partout.
+ */
+const client = new Client(`${location.origin}${GAME_SERVER_PATH}`);
 
 export async function createRoom(options: JoinOptions): Promise<GameRoom> {
   return client.create(ROOM_NAME, options);

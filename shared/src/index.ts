@@ -10,6 +10,8 @@ export const ENTITY_RADIUS = 12;
 export const TICK_RATE = 20; // ticks serveur par seconde
 export const SPEED = 70; // px/s, identique pour joueurs et PNJ
 export const SERVER_PORT = 2567;
+/** Chemin sous lequel le client joint le serveur de jeu (proxy Caddy en production, Vite en dev). */
+export const GAME_SERVER_PATH = "/colyseus";
 export const ROOM_NAME = "game";
 
 /** Directions possibles : -1 = immobile, 0..7 = 8 directions (0 = est, sens horaire, y vers le bas). */

@@ -1,0 +1,23 @@
+# Point d'entrée unique du jeu. SITE_ADDRESS vient du fichier .env :
+#   - un nom de domaine (jeu.exemple.fr) : HTTPS automatique (Let's Encrypt) ;
+#   - « :80 » : HTTP simple, pour essayer en local ou sur le réseau de la maison.
+{$SITE_ADDRESS}
+
+encode zstd gzip
+
+# Serveur de jeu : HTTP (matchmaking) et WebSockets, préfixe /colyseus retiré.
+handle_path /colyseus/* {
+	reverse_proxy game:2567
+}
+
+# Client : fichiers construits par Vite. Les fichiers de /assets portent un hash dans leur
+# nom (cache long) ; la page elle-même est toujours revalidée, pour voir les mises à jour.
+handle {
+	root * /srv
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header @assets -Last-Modified
+	@page path / /index.html
+	header @page Cache-Control "no-cache"
+	file_server
+}

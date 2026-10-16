@@ -12,6 +12,53 @@ npm run dev
 - Serveur de jeu (Colyseus) : `ws://localhost:2567`
 - Client (Phaser + Vite) : http://localhost:5173. Ouvre plusieurs onglets pour simuler plusieurs joueurs.
 
+## Déployer
+
+Un seul serveur, deux conteneurs (`docker-compose.yml`) :
+
+- **web** : Caddy. Il sert le client (build Vite), fait suivre `/colyseus/*` au serveur de
+  jeu (WebSockets compris) et gère le **HTTPS automatiquement** (Let's Encrypt).
+- **game** : le serveur Colyseus. Non exposé : seul Caddy lui parle.
+
+Pas de load balancer : les rooms vivent en mémoire d'un seul process, qui suffit largement
+pour des soirées entre amis.
+
+### Première mise en ligne
+
+Prérequis : un serveur avec Docker (par exemple un petit VPS) et un nom de domaine qui
+pointe vers lui (ports 80 et 443 ouverts).
+
+```bash
+git clone <ce dépôt> whosclaude && cd whosclaude
+cp .env.example .env    # puis renseigner SITE_ADDRESS=ton.domaine.fr
+docker compose up -d --build
+```
+
+Le jeu est alors sur `https://ton.domaine.fr` ; le certificat est obtenu au premier accès.
+
+### Mettre à jour
+
+```bash
+git pull && docker compose up -d --build
+```
+
+Les parties en cours sont coupées (rooms en mémoire) : mieux vaut mettre à jour quand
+personne ne joue. Les certificats sont conservés (volume `caddy_data`).
+
+### Essayer en local, sans domaine
+
+Dans `.env` : `SITE_ADDRESS=:80` et `HTTP_PORT=8080`, puis `docker compose up -d --build` :
+le jeu est sur `http://localhost:8080` (et sur le réseau de la maison avec l'IP du PC).
+
+Sans Docker, `npm run build -w client && npm run preview -w client` (avec le serveur lancé)
+reproduit le même routage `/colyseus` sur `http://localhost:4173`.
+
+### Logs
+
+```bash
+docker compose logs -f game
+```
+
 ## Déroulement d'une session
 
 1. **Accueil** : choisir un pseudo, puis créer une partie ou en rejoindre une avec son code
