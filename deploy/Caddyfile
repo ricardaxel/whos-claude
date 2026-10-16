@@ -11,9 +11,12 @@ header {
 	X-Frame-Options "DENY"
 	Referrer-Policy "strict-origin-when-cross-origin"
 	Permissions-Policy "camera=(), microphone=(), geolocation=()"
-	# Le jeu ne charge que ses propres fichiers (et la police Google Fonts) ; les WebSockets
-	# vont vers la même origine. « unsafe-inline » pour les styles : la page en contient.
+	# Le jeu ne charge que ses propres fichiers (police comprise) ; les WebSockets vont vers
+	# la même origine. « unsafe-inline » pour les styles : la page en contient.
 	Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+	# HTTPS obligatoire pour ce domaine (les navigateurs l'ignorent en HTTP, donc sans effet
+	# en local). Pas de includeSubDomains : d'autres sous-domaines n'ont peut-être pas HTTPS.
+	Strict-Transport-Security "max-age=31536000"
 	-Server
 }
 

@@ -1,8 +1,8 @@
 import { createServer, type AddressInfo } from "node:net";
 // Importer le paquet charge aussi ses extensions de Room (waitForMessage…).
 import { ColyseusTestServer } from "@colyseus/testing";
-import type { Server } from "colyseus";
-import type { Room as ClientRoom } from "colyseus.js";
+import { matchMaker, type Server } from "colyseus";
+import { Client, type Room as ClientRoom } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import {
   ARENA, CROSSHAIR_COLORS, ENTITY_RADIUS, MSG, PLAYFIELD, ROOM_NAME, ROUNDS, TICK_RATE,
@@ -35,7 +35,7 @@ export function useTestServer(configure?: (server: Server) => void) {
     GameRoom.autoTick = false;
     // Toutes les connexions de test viennent de 127.0.0.1 : on lève les plafonds anti-abus
     // (testés à part dans limits.test.ts).
-    LIMITS.maxRooms = LIMITS.maxRoomsPerIp = 10_000;
+    LIMITS.maxRooms = LIMITS.maxRoomsPerIp = LIMITS.matchmakeBurst = 10_000;
     const server = createGameServer();
     configure?.(server);
     ctx.port = process.env.TEST_PORT ? Number(process.env.TEST_PORT) : await freePort();
@@ -117,6 +117,21 @@ export async function join(colyseus: ColyseusTestServer, room: GameRoom, name = 
   // Tout autre type de message est aussi journalisé : un message inattendu doit se voir.
   clientRoom.onMessage("*", (type, message) => player.log.push({ type: String(type), message }));
   return player;
+}
+
+/** Place réservée par le matchmaker comme pour une requête HTTP venue de Caddy (X-Real-IP). */
+export function reserveFrom(room: GameRoom, ip: string, name = "Joueur") {
+  return matchMaker.joinById(room.roomId, { name }, { headers: { "x-real-ip": ip }, ip: "127.0.0.1" } as never);
+}
+
+/** Occupe une place réservée en ouvrant le WebSocket, comme le fait le client. */
+export function consumeReservation(ctx: { port: number }, reservation: unknown) {
+  return new Client(`ws://localhost:${ctx.port}`).consumeSeatReservation(reservation as never);
+}
+
+/** Rejoint une room depuis une adresse donnée. */
+export async function joinFrom(ctx: { port: number }, room: GameRoom, ip: string, name = "Joueur") {
+  return consumeReservation(ctx, await reserveFrom(room, ip, name));
 }
 
 export async function createRoom(colyseus: ColyseusTestServer, roomName = ROOM_NAME) {

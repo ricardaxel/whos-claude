@@ -1,31 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Client } from "colyseus";
 import { LOOK_COUNT, MSG, RACE, ROUNDS, type JoinOptions } from "@whosclaude/shared";
-import { GameRoom } from "../src/GameRoom.js";
 import {
-  advance, advanceUntil, createRoom, internals, join, send, shoot, startMatch, useTestServer, waitFor,
+  advance, advanceUntil, consumeReservation, createRoom, reserveFrom, internals, join, send, shoot, startMatch, useTestServer, waitFor,
 } from "./helpers.js";
 
-/**
- * Room dont l'autorisation peut être suspendue après la vérification de phase,
- * pour rejouer la course « startMatch traité pendant un onAuth asynchrone ».
- */
-class SlowAuthRoom extends GameRoom {
-  static gate: Promise<void> | null = null;
-  static waiting = false;
-}
-Object.defineProperty(SlowAuthRoom.prototype, "onAuth", {
-  value: async function (this: GameRoom, client: Client, options: JoinOptions) {
-    const allowed = GameRoom.prototype.onAuth.call(this, client, options);
-    if (SlowAuthRoom.gate) {
-      SlowAuthRoom.waiting = true;
-      await SlowAuthRoom.gate;
-    }
-    return allowed;
-  },
-});
-
-const ctx = useTestServer((server) => server.define("slow-auth", SlowAuthRoom));
+const ctx = useTestServer();
 
 describe("salon", () => {
   it("le premier arrivé est l'hôte ; pseudos nettoyés ; couleurs uniques", async () => {
@@ -99,24 +78,15 @@ describe("salon", () => {
     await expect(join(ctx.colyseus, room)).rejects.toThrow();
   });
 
-  it("un match lancé pendant l'autorisation d'un arrivant le refuse quand même", async () => {
-    const room = await createRoom(ctx.colyseus, "slow-auth");
+  it("une place réservée avant le lancement du match ne permet pas d'entrer après", async () => {
+    const room = await createRoom(ctx.colyseus);
     const host = await join(ctx.colyseus, room);
-
-    let release!: () => void;
-    SlowAuthRoom.gate = new Promise((resolve) => (release = resolve));
-    SlowAuthRoom.waiting = false;
-    const late = join(ctx.colyseus, room, "Tardif");
-    late.catch(() => {}); // observé plus bas
-    await waitFor(() => SlowAuthRoom.waiting, "onAuth suspendu");
-
-    // onAuth a validé la phase « lobby »... et le match démarre pendant qu'il attend.
+    // Requête HTTP de matchmaking acceptée dans le salon... puis le match démarre avant la connexion.
+    const reservation = await reserveFrom(room, "10.0.0.9", "Tardif");
     await send(room, host, MSG.startMatch);
     expect(room.state.phase).toBe("countdown");
-    SlowAuthRoom.gate = null;
-    release();
 
-    await expect(late).rejects.toThrow();
+    await expect(consumeReservation(ctx, reservation)).rejects.toThrow(/match est en cours/);
     expect(room.state.players.size).toBe(1);
     expect(room.clients.length).toBe(1);
   });

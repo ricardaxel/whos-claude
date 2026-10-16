@@ -12,8 +12,13 @@ import { createMode } from "./modes/index.js";
 import { uniqueName } from "./names.js";
 import { releaseRoomCode, reserveRoomCode } from "./roomCodes.js";
 import {
-  clientIp, releaseRoomForIp, reserveRoomForIp, roomCapacityReached, trackRoom, untrackRoom,
+  allowMatchmake, clientIp, releaseRoomForIp, reserveRoomForIp, roomCapacityReached, trackRoom, untrackRoom,
 } from "./limits.js";
+
+/** Données d'autorisation attachées à chaque client (client.auth). */
+interface AuthData {
+  ip: string;
+}
 
 /** Données côté serveur uniquement : qui contrôle quoi. Jamais synchronisé. */
 interface Controller extends NpcBrain {
@@ -58,6 +63,10 @@ export class GameRoom extends Room<GameState> {
   static autoTick = true;
   /** Délai accordé à un joueur déconnecté (écran verrouillé, wifi instable…) pour revenir. */
   static reconnectionSeconds = 20;
+  /** Délai entre la réservation d'une place (HTTP) et la connexion WebSocket qui l'occupe. */
+  static seatReservationSeconds = 5;
+  /** Durée pendant laquelle une adresse exclue par l'hôte ne peut plus revenir. */
+  static banSeconds = 10 * 60;
 
   maxClients = MAX_PLAYERS;
   state = new GameState();
@@ -74,8 +83,8 @@ export class GameRoom extends Room<GameState> {
   private roundStartPlayers = 0;
   /** IP du créateur de la room (comptée dans sa limite de rooms ouvertes). */
   private creatorIp?: string;
-  /** Adresses exclues par l'hôte : elles ne peuvent plus revenir dans cette partie. */
-  private bannedIps = new Set<string>();
+  /** Adresses exclues par l'hôte, avec l'heure (ms) où elles pourront revenir. */
+  private bannedIps = new Map<string, number>();
   /** Joueurs en cours d'exclusion : leur départ est définitif, sans attente de reconnexion. */
   private kicked = new Set<string>();
 
@@ -85,6 +94,8 @@ export class GameRoom extends Room<GameState> {
     this.roomId = reserveRoomCode();
     // Privée : invisible du matchmaking, on n'y entre qu'avec le code.
     this.setPrivate(true);
+    // Une place réservée par HTTP sans connexion WebSocket ne garde pas la room longtemps.
+    this.setSeatReservationTime(GameRoom.seatReservationSeconds);
     trackRoom(this.roomId);
 
     this.onMessage(MSG.ready, (client, message: ReadyMessage) => {
@@ -106,8 +117,11 @@ export class GameRoom extends Room<GameState> {
     this.onMessage(MSG.kick, (client, message: KickMessage) => {
       const target = this.clients.find((c) => c.sessionId === message?.playerId);
       if (!this.isHost(client) || this.state.phase !== "lobby" || !target || target === client) return;
-      const ip = (target.auth as { ip?: string } | undefined)?.ip;
-      if (ip) this.bannedIps.add(ip);
+      // Même adresse que l'hôte : même wifi, sans doute la soirée elle-même. On exclut sans bannir,
+      // sinon plus personne de la maison ne pourrait rejoindre.
+      const ip = (target.auth as AuthData | undefined)?.ip;
+      const hostIp = (client.auth as AuthData | undefined)?.ip;
+      if (ip && ip !== hostIp) this.bannedIps.set(ip, Date.now() + GameRoom.banSeconds * 1000);
       this.kicked.add(target.sessionId);
       target.leave(CLOSE_KICKED);
     });
@@ -155,23 +169,29 @@ export class GameRoom extends Room<GameState> {
     if (GameRoom.autoTick) this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), 1000 / TICK_RATE);
   }
 
-  onAuth(_client: Client, _options: JoinOptions, context?: AuthContext) {
-    // Pas d'arrivée en plein match : il faudrait apparaître dans l'arène sans se trahir.
-    if (this.state.phase !== "lobby") throw new ServerError(403, "Un match est en cours, réessaie à la fin.");
+  /**
+   * Appelé dès la requête HTTP de matchmaking (créer ou rejoindre), avant toute création de
+   * room : c'est là qu'on freine une adresse qui enchaîne les demandes.
+   * (Avec ce onAuth statique, Colyseus n'appelle plus de onAuth d'instance : les règles
+   * propres à une room sont vérifiées dans onJoin.)
+   */
+  static async onAuth(_token: string, _options: JoinOptions, context: AuthContext): Promise<AuthData> {
     const ip = clientIp(context);
-    if (this.bannedIps.has(ip)) throw new ServerError(403, "L'hôte t'a exclu de cette partie.");
-    // Le premier arrivé est le créateur : sa room compte dans la limite de son adresse.
-    if (this.creatorIp === undefined && this.clients.length === 0) {
-      if (!reserveRoomForIp(ip)) throw new ServerError(429, "Trop de parties créées depuis ta connexion. Termine-en une d'abord.");
-      this.creatorIp = ip;
-    }
-    // Conservé dans client.auth : sert à l'exclusion.
+    if (!allowMatchmake(ip)) throw new ServerError(429, "Trop de demandes depuis ta connexion, patiente quelques secondes.");
     return { ip };
   }
 
-  onJoin(client: Client, options: JoinOptions) {
-    // onAuth est asynchrone : un startMatch a pu être traité entre-temps.
+  onJoin(client: Client, options: JoinOptions, auth?: AuthData) {
+    // Pas d'arrivée en plein match : il faudrait apparaître dans l'arène sans se trahir.
     if (this.state.phase !== "lobby") throw new ServerError(403, "Un match est en cours, réessaie à la fin.");
+    const ip = auth?.ip ?? "inconnue";
+    if ((this.bannedIps.get(ip) ?? 0) > Date.now()) throw new ServerError(403, "L'hôte t'a exclu de cette partie.");
+    // Le premier arrivé est le créateur : sa room compte dans la limite de son adresse.
+    if (this.creatorIp === undefined && this.state.players.size === 0) {
+      if (!reserveRoomForIp(ip)) throw new ServerError(429, "Trop de parties créées depuis ta connexion. Termine-en une d'abord.");
+      this.creatorIp = ip;
+    }
+
     const info = new PlayerInfo();
     const taken = new Set<string>();
     this.state.players.forEach((p) => taken.add(p.name));

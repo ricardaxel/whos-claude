@@ -55,10 +55,12 @@ reproduit le même routage `/colyseus` sur `http://localhost:4173`.
 
 ### Sécurité
 
-- Caddy borne le corps des requêtes (16 Ko), ajoute les en-têtes de sécurité (CSP…) et
-  transmet l'IP du joueur au serveur (`X-Real-IP`).
-- Le serveur plafonne les parties ouvertes : 200 au total, 3 créées par adresse IP
-  (`server/src/limits.ts`). Rejoindre une partie n'est pas limité.
+- Caddy borne le corps des requêtes (16 Ko), ajoute les en-têtes de sécurité (CSP, HSTS…)
+  et transmet l'IP du joueur au serveur (`X-Real-IP`).
+- Le serveur (`server/src/limits.ts`) freine les requêtes de matchmaking dès la requête
+  HTTP (rafale de 12, puis une toutes les 2 s par adresse ; en IPv6, par préfixe /64),
+  limite à 3 les parties ouvertes par une même adresse et à 1000 au total. Une place
+  réservée sans connexion WebSocket expire au bout de 5 s.
 - Police (DotGothic16, licence OFL) hébergée avec le jeu : aucune requête vers Google.
 - Mémoire plafonnée par conteneur et logs en rotation (`docker-compose.yml`).
 
@@ -75,8 +77,8 @@ docker compose logs -f game
 2. **Salon** : liste des joueurs et de leur statut. L'hôte choisit le mode et le nombre de
    manches, puis lance le match quand les autres sont prêts (Entrée / Start = prêt).
    Si l'hôte part, le joueur le plus ancien prend la main. L'hôte peut **exclure** un joueur :
-   son adresse IP ne peut plus rejoindre cette partie (ni les autres appareils derrière la
-   même box, à garder en tête).
+   son adresse ne peut plus rejoindre la partie pendant 10 minutes, sauf si c'est celle de
+   l'hôte (même wifi : on n'empêche pas le reste de la maison de jouer).
 3. **Match** : N manches, 1 point par manche gagnée. Personne ne peut rejoindre en cours de match.
 4. **Podium** : classement final, puis retour automatique au salon.
 
