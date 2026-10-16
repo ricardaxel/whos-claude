@@ -19,7 +19,6 @@ export class TouchSource implements InputSource {
     this.bindHold("touch-advance", "advance");
     this.bindHold("touch-reveal", "reveal");
     this.bindTap("touch-fire", "fire");
-    this.bindTap("touch-start", "start");
 
     scene.input.on("pointerdown", this.onPointerDown);
     scene.input.on("pointermove", this.onPointerMove);

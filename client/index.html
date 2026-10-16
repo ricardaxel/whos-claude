@@ -5,14 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>WhosClaude</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #111; overflow: hidden; }
+      html, body { margin: 0; height: 100%; background: #111; color: #eee; overflow: hidden; }
       body { display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
       #game { width: 100%; height: 100%; touch-action: none; }
 
-      /* Contrôles tactiles : affichés seulement sur écran tactile. */
-      #touch-controls { display: none; }
+      /* --- Écrans de menu (HTML simple, superposés au jeu) --- */
+      .screen {
+        display: none; position: fixed; inset: 0; z-index: 20; overflow-y: auto;
+        background: rgba(17, 17, 17, 0.96); padding: 24px 16px; box-sizing: border-box;
+      }
+      body[data-screen="home"] #screen-home,
+      body[data-screen="lobby"] #screen-lobby,
+      body[data-screen="podium"] #screen-podium { display: block; }
+      .panel { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+      h1, h2 { margin: 0; }
+      label { font-size: 13px; color: #aaa; display: flex; flex-direction: column; gap: 4px; }
+      input, select, button { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #444; background: #222; color: #eee; }
+      button { cursor: pointer; }
+      button.primary { background: #3d7bfd; border-color: #3d7bfd; color: #fff; font-weight: bold; }
+      button:disabled, select:disabled { opacity: 0.5; cursor: default; }
+      .row { display: flex; gap: 8px; }
+      .row > * { flex: 1; }
+      .error { color: #ff7a7a; min-height: 1.2em; font-size: 14px; }
+      .muted { color: #999; font-size: 13px; }
+      .code { font-size: 32px; font-weight: bold; letter-spacing: 6px; }
+      ul.players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+      ul.players li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #1c1c1c; border-radius: 8px; }
+      .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+      .grow { flex: 1; }
+      .badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #333; }
+      .badge.ok { background: #2f6b3a; }
+
+      /* --- Contrôles tactiles : seulement en jeu, sur écran tactile --- */
+      #touch-controls, #rotate-hint { display: none; }
       @media (pointer: coarse) {
-        #touch-controls { display: block; }
+        body[data-screen="game"] #touch-controls { display: block; }
+      }
+      @media (pointer: coarse) and (orientation: portrait) {
+        body[data-screen="game"] #rotate-hint { display: block; }
       }
       .touch-btn {
         position: fixed; z-index: 10;
@@ -25,25 +55,65 @@
       #touch-advance { left: 16px; bottom: 16px; width: 96px; height: 96px; }
       #touch-reveal { left: 124px; bottom: 16px; width: 56px; height: 56px; font-size: 12px; }
       #touch-fire { right: 16px; bottom: 16px; width: 96px; height: 96px; border-color: #ff5a5a; }
-      #touch-start {
-        left: 50%; top: 12px; transform: translateX(-50%);
-        border-radius: 24px; padding: 10px 22px; display: none;
-      }
-      body[data-phase="lobby"] #touch-start { display: block; }
       #rotate-hint {
-        display: none; position: fixed; top: 72px; left: 0; right: 0;
+        position: fixed; top: 24px; left: 0; right: 0;
         text-align: center; color: #bbb; font-size: 14px;
-      }
-      @media (pointer: coarse) and (orientation: portrait) {
-        #rotate-hint { display: block; }
       }
     </style>
   </head>
-  <body>
+  <body data-screen="home">
     <div id="game"></div>
+
+    <section id="screen-home" class="screen">
+      <div class="panel">
+        <h1>WhosClaude</h1>
+        <label>Ton pseudo
+          <input id="home-name" maxlength="16" autocomplete="nickname" placeholder="Pseudo" />
+        </label>
+        <button id="home-create" class="primary">Créer une partie</button>
+        <div class="muted">ou rejoindre celle d'un ami :</div>
+        <div class="row">
+          <input id="home-code" maxlength="4" placeholder="CODE" autocapitalize="characters" style="text-transform: uppercase" />
+          <button id="home-join">Rejoindre</button>
+        </div>
+        <div id="home-error" class="error"></div>
+      </div>
+    </section>
+
+    <section id="screen-lobby" class="screen">
+      <div class="panel">
+        <div class="muted">Code de la partie</div>
+        <div class="row" style="align-items: center">
+          <div id="lobby-code" class="code"></div>
+          <button id="lobby-copy">Copier le lien</button>
+        </div>
+        <h2>Joueurs</h2>
+        <ul id="lobby-players" class="players"></ul>
+        <h2>Réglages</h2>
+        <label>Mode
+          <select id="lobby-mode"></select>
+        </label>
+        <div id="lobby-mode-description" class="muted"></div>
+        <label>Nombre de manches
+          <select id="lobby-rounds"></select>
+        </label>
+        <div id="lobby-host-hint" class="muted"></div>
+        <button id="lobby-ready"></button>
+        <button id="lobby-start" class="primary">Lancer le match</button>
+        <button id="lobby-leave">Quitter</button>
+      </div>
+    </section>
+
+    <section id="screen-podium" class="screen">
+      <div class="panel">
+        <h1>Podium</h1>
+        <ul id="podium-players" class="players"></ul>
+        <div class="muted">Retour au salon dans quelques secondes…</div>
+      </div>
+    </section>
+
     <div id="rotate-hint">Tourne ton téléphone en paysage pour mieux voir</div>
     <div id="touch-controls">
-      <button id="touch-start" class="touch-btn">Lancer</button>
       <button id="touch-advance" class="touch-btn">Avancer</button>
       <button id="touch-reveal" class="touch-btn">Moi ?</button>
       <button id="touch-fire" class="touch-btn">Tirer</button>

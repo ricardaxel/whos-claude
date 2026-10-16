@@ -45,11 +45,51 @@ function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
-// --- Déroulement d'une manche ---
+// --- Session : salon, match, manches ---
 
-export type Phase = "lobby" | "countdown" | "racing" | "finished";
+/**
+ * lobby : salon, choix du mode, joueurs prêts
+ * countdown → playing → roundEnd : une manche, répétée N fois
+ * podium : classement final, puis retour au salon
+ */
+export type Phase = "lobby" | "countdown" | "playing" | "roundEnd" | "podium";
 export const COUNTDOWN_SECONDS = 3;
 export const RESULTS_SECONDS = 6;
+export const PODIUM_SECONDS = 10;
+export const MAX_PLAYERS = 8;
+export const ROUNDS = { min: 1, max: 10, default: 3 } as const;
+export const NAME_MAX_LENGTH = 16;
+/** Alphabet des codes de room : sans lettres ambiguës (I, O). */
+export const ROOM_CODE = { alphabet: "ABCDEFGHJKLMNPQRSTUVWXYZ", length: 4 } as const;
+
+/** Nettoie un pseudo reçu du réseau ou saisi par le joueur. */
+export function sanitizeName(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, NAME_MAX_LENGTH);
+}
+
+// --- Registre des modes ---
+
+export interface ModeInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export const MODES = {
+  race: {
+    id: "race",
+    name: "Course",
+    description: "Une seule touche pour avancer, une seule balle. Premier à l'arrivée ou dernier survivant.",
+  },
+} as const satisfies Record<string, ModeInfo>;
+
+export type ModeId = keyof typeof MODES;
+export const DEFAULT_MODE: ModeId = "race";
+
+export function isModeId(value: unknown): value is ModeId {
+  return typeof value === "string" && Object.hasOwn(MODES, value);
+}
 
 // --- Mode course ---
 
@@ -110,14 +150,36 @@ export interface ShotMessage {
 
 /** Serveur → tous, en fin de manche uniquement : qui était joueur, et qui a gagné. */
 export interface RevealMessage {
+  /** Clé du gagnant dans `state.players`, ou null si personne ne gagne. */
+  winnerPlayerId: string | null;
   winnerEntityId: string | null;
-  playerEntityIds: string[];
+  players: { playerId: string; entityId: string }[];
+}
+
+/** Options envoyées en créant ou rejoignant une room. */
+export interface JoinOptions {
+  name: string;
+}
+
+/** Client → serveur, dans le salon : se déclarer prêt ou non. */
+export interface ReadyMessage {
+  ready: boolean;
+}
+
+/** Client (hôte) → serveur, dans le salon : réglages du match. */
+export interface SettingsMessage {
+  modeId?: ModeId;
+  rounds?: number;
 }
 
 export const MSG = {
+  // Salon
+  ready: "ready",
+  settings: "settings",
+  startMatch: "startMatch",
+  // Manche
   input: "input",
   fire: "fire",
-  start: "start",
   assign: "assign",
   shot: "shot",
   reveal: "reveal",

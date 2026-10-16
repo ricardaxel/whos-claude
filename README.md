@@ -12,6 +12,19 @@ npm run dev
 - Serveur de jeu (Colyseus) : `ws://localhost:2567`
 - Client (Phaser + Vite) : http://localhost:5173. Ouvre plusieurs onglets pour simuler plusieurs joueurs.
 
+## Déroulement d'une session
+
+1. **Accueil** : choisir un pseudo, puis créer une partie ou en rejoindre une avec son code
+   (4 lettres). L'URL `?room=CODE` sert de lien d'invitation.
+2. **Salon** : liste des joueurs et de leur statut. L'hôte choisit le mode et le nombre de
+   manches, puis lance le match quand les autres sont prêts (Entrée / Start = prêt).
+   Si l'hôte part, le joueur le plus ancien prend la main.
+3. **Match** : N manches, 1 point par manche gagnée. Personne ne peut rejoindre en cours de match.
+4. **Podium** : classement final, puis retour automatique au salon.
+
+Les rooms sont privées : on n'y entre qu'avec le code. Les modes sont déclarés dans
+`MODES` (`shared`) et instanciés via `server/src/modes/index.ts`.
+
 ## Mode course
 
 Tout le monde part de la ligne de départ. Une seule action pour se déplacer : avancer.
@@ -33,7 +46,7 @@ avec de nouveaux identifiants et une nouvelle attribution des personnages.
 | Viser         | Souris               | Un des sticks     | Glisser sur le jeu        |
 | Tirer         | Clic gauche ou F     | RB ou X           | Bouton « Tirer »          |
 | Me repérer    | Maj                  | LB ou Y           | Bouton « Moi ? »          |
-| Lancer        | Entrée               | Start             | Bouton « Lancer »         |
+| Prêt (salon)  | Entrée               | Start             | Bouton du salon           |
 
 Les inputs passent par une couche d'abstraction (`client/src/input/`) : chaque
 périphérique est une `InputSource` qui produit des intentions (avancer, viser, tirer…),
@@ -48,6 +61,7 @@ fusionnées par l'`InputManager`. Ajouter un périphérique = écrire une nouvel
 ## Règle d'or : joueurs et PNJ indiscernables
 
 - L'état diffusé ne contient que `x`, `y`, `dir` et `alive`, identiques pour tout le monde.
+- La liste publique des joueurs (pseudo, couleur, score) ne référence jamais leur entité.
 - Un joueur qui rejoint prend le contrôle d'un PNJ existant : aucune entité n'apparaît.
 - Les identifiants d'entités et de viseurs sont aléatoires et sans lien entre eux.
 - Le lien joueur ↔ entité reste sur le serveur et n'est envoyé qu'au joueur concerné.

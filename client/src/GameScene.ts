@@ -1,9 +1,10 @@
 import Phaser from "phaser";
-import { Client, getStateCallbacks, Room } from "colyseus.js";
+import { getStateCallbacks } from "colyseus.js";
 import {
   ARENA, AssignMessage, CROSSHAIR_COLORS, Dir, FireMessage, ENTITY_RADIUS, IDLE, InputMessage, MSG, Phase, RACE,
-  RevealMessage, ROOM_NAME, SERVER_PORT, ShotMessage, TICK_RATE,
+  RevealMessage, ShotMessage, TICK_RATE,
 } from "@whosclaude/shared";
+import type { GameRoom } from "./net";
 import { InputManager } from "./input/InputManager";
 import { GamepadSource } from "./input/GamepadSource";
 import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
@@ -17,12 +18,15 @@ const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const FORWARD: Dir = 0;
 const CROSSHAIR_RADIUS = 14;
 
-const HUD_TEXT: Record<Phase, string> = {
-  lobby: "Entrée / Start pour lancer · Maj pour te repérer",
-  countdown: "Prépare-toi…",
-  racing: "Avance (Espace, RT) · Vise et tire (clic, RB) · Une seule balle !",
-  finished: "",
+const HUD_HINT: Partial<Record<Phase, string>> = {
+  countdown: "Prépare-toi… (Maj / LB pour te repérer)",
+  playing: "Avance (Espace, RT) · Vise et tire (clic, RB) · Une seule balle !",
 };
+
+/** Ce que la session peut demander à la scène. */
+export interface SceneHooks {
+  toggleReady(): void;
+}
 
 interface View<T extends Phaser.GameObjects.GameObject> {
   object: T;
@@ -30,8 +34,14 @@ interface View<T extends Phaser.GameObjects.GameObject> {
   targetY: number;
 }
 
+/**
+ * Rendu et inputs d'une manche. La scène ne se connecte pas elle-même :
+ * la session lui confie la room (attach) et la lui reprend (detach).
+ */
 export class GameScene extends Phaser.Scene {
-  private room?: Room;
+  private room?: GameRoom;
+  private hooks?: SceneHooks;
+  private created = false;
   private inputs!: InputManager;
   private entities = new Map<string, View<Phaser.GameObjects.Arc>>();
   private crosshairs = new Map<string, View<Phaser.GameObjects.Graphics>>();
@@ -46,13 +56,34 @@ export class GameScene extends Phaser.Scene {
   private status!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
   private toast!: Phaser.GameObjects.Text;
-  private revealRings: Phaser.GameObjects.Arc[] = [];
+  private revealObjects: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
     super("game");
   }
 
-  async create() {
+  attach(room: GameRoom, hooks: SceneHooks) {
+    this.room = room;
+    this.hooks = hooks;
+    if (this.created) this.bindRoom(room);
+  }
+
+  detach() {
+    for (const view of [...this.entities.values(), ...this.crosshairs.values()]) view.object.destroy();
+    this.entities.clear();
+    this.crosshairs.clear();
+    this.clearResults();
+    this.room = undefined;
+    this.hooks = undefined;
+    this.myEntityId = this.myCrosshairId = undefined;
+    if (this.created) {
+      this.banner.setText("");
+      this.toast.setText("");
+      this.status.setText("");
+    }
+  }
+
+  create() {
     this.inputs = new InputManager([new KeyboardMouseSource(this), new GamepadSource(this), new TouchSource(this)]);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.inputs.destroy());
     this.input.setDefaultCursor("none");
@@ -60,7 +91,7 @@ export class GameScene extends Phaser.Scene {
     this.drawTrack();
     this.marker = this.add.circle(0, 0, ENTITY_RADIUS + 6).setStrokeStyle(3, 0xffd34d).setVisible(false).setDepth(10);
     this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(26);
-    this.status = this.add.text(12, 10, "Connexion…", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(40);
+    this.status = this.add.text(12, 10, "", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(40);
     this.toast = this.add
       .text(ARENA.width / 2, 40, "", { fontFamily: "sans-serif", fontSize: "22px", fontStyle: "bold", color: "#ffffff", stroke: "#000000", strokeThickness: 4 })
       .setOrigin(0.5)
@@ -73,18 +104,11 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(40);
 
-    try {
-      const client = new Client(`ws://${location.hostname}:${SERVER_PORT}`);
-      this.room = await client.joinOrCreate(ROOM_NAME);
-    } catch (error) {
-      this.status.setText("Impossible de rejoindre le serveur. Est-il lancé ?");
-      console.error(error);
-      return;
-    }
-
-    this.bindRoom(this.room);
+    this.created = true;
+    if (this.room) this.bindRoom(this.room);
   }
 
+  // TODO(2e mode) : le décor dépendra du mode, à déplacer dans un rendu par mode.
   private drawTrack() {
     const g = this.add.graphics();
     // Ligne de départ, juste derrière les personnages.
@@ -99,7 +123,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private bindRoom(room: Room) {
+  private bindRoom(room: GameRoom) {
     const $ = getStateCallbacks(room);
 
     $(room.state).entities.onAdd((entity: any, id: string) => {
@@ -125,12 +149,13 @@ export class GameScene extends Phaser.Scene {
       const graphics = this.add.graphics().setPosition(crosshair.x, crosshair.y).setDepth(25);
       const view = { object: graphics, targetX: crosshair.x, targetY: crosshair.y };
       this.crosshairs.set(id, view);
+      const redraw = () => drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
       $(crosshair).onChange(() => {
         view.targetX = crosshair.x;
         view.targetY = crosshair.y;
-        drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
       });
-      drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
+      $(crosshair).listen("loaded", redraw);
+      $(crosshair).listen("color", redraw);
     });
 
     $(room.state).crosshairs.onRemove((_crosshair: any, id: string) => {
@@ -150,14 +175,13 @@ export class GameScene extends Phaser.Scene {
 
     room.onMessage(MSG.shot, (message: ShotMessage) => this.showShot(message));
     room.onMessage(MSG.reveal, (message: RevealMessage) => this.showResults(message));
-
-    room.onLeave(() => this.status.setText("Déconnecté du serveur."));
   }
 
   private onPhase(phase: Phase) {
-    document.body.dataset.phase = phase;
-    this.status.setText(HUD_TEXT[phase]);
-    if (phase === "lobby") this.clearResults();
+    const state = this.room!.state;
+    const roundLabel = state.round > 0 ? `Manche ${state.round}/${state.totalRounds} · ` : "";
+    this.status.setText(HUD_HINT[phase] ? roundLabel + HUD_HINT[phase] : "");
+    if (phase !== "roundEnd") this.clearResults();
     this.refreshBanner();
   }
 
@@ -165,8 +189,8 @@ export class GameScene extends Phaser.Scene {
     const state = this.room?.state;
     if (!state) return;
     if (state.phase === "countdown") this.banner.setText(String(state.countdown));
-    else if (state.phase === "racing") this.flash(this.banner, "Partez !");
-    else if (state.phase === "lobby") this.banner.setText("");
+    else if (state.phase === "playing") this.flash(this.banner, "Partez !");
+    else if (state.phase !== "roundEnd") this.banner.setText("");
   }
 
   private flash(text: Phaser.GameObjects.Text, content: string, ms = 800) {
@@ -183,25 +207,35 @@ export class GameScene extends Phaser.Scene {
     this.flash(this.toast, message, 1800);
   }
 
-  private showResults({ winnerEntityId, playerEntityIds }: RevealMessage) {
-    // Fin de manche : on révèle tous les joueurs, le gagnant en doré.
-    for (const id of playerEntityIds) {
-      const view = this.entities.get(id);
-      if (!view) continue;
-      const isWinner = id === winnerEntityId;
+  private showResults({ winnerPlayerId, winnerEntityId, players }: RevealMessage) {
+    const state = this.room!.state;
+    // Fin de manche : on révèle tous les joueurs (avec leur pseudo), le gagnant en doré.
+    for (const { playerId, entityId } of players) {
+      const view = this.entities.get(entityId);
+      const info = state.players.get(playerId);
+      if (!view || !info) continue;
+      const isWinner = entityId === winnerEntityId;
       const ring = this.add
         .circle(view.targetX, view.targetY, ENTITY_RADIUS + (isWinner ? 9 : 5))
-        .setStrokeStyle(isWinner ? 5 : 3, isWinner ? 0xffd34d : 0xff5a5a)
+        .setStrokeStyle(isWinner ? 5 : 3, isWinner ? 0xffd34d : CROSSHAIR_COLORS[info.color] ?? 0xffffff)
         .setDepth(15);
-      this.revealRings.push(ring);
+      const label = this.add
+        .text(view.targetX, view.targetY - ENTITY_RADIUS - 14, info.name, {
+          fontFamily: "sans-serif", fontSize: "14px", color: "#ffffff", stroke: "#000000", strokeThickness: 3,
+        })
+        .setOrigin(0.5, 1)
+        .setDepth(16);
+      this.revealObjects.push(ring, label);
     }
-    const text = winnerEntityId === null ? "Personne\nne gagne" : winnerEntityId === this.myEntityId ? "Victoire !" : "Un autre joueur\na gagné !";
+
+    const winner = winnerPlayerId ? state.players.get(winnerPlayerId) : undefined;
+    const text = !winnerPlayerId ? "Personne\nne gagne" : winnerPlayerId === this.room!.sessionId ? "Victoire !" : `Victoire de\n${winner?.name ?? "?"}`;
     this.banner.setText(text);
   }
 
   private clearResults() {
-    for (const ring of this.revealRings) ring.destroy();
-    this.revealRings = [];
+    for (const object of this.revealObjects) object.destroy();
+    this.revealObjects = [];
   }
 
   update(time: number, deltaMs: number) {
@@ -232,8 +266,12 @@ export class GameScene extends Phaser.Scene {
 
   private sendInputs(frame: InputFrame, time: number) {
     const room = this.room;
+    const phase = room?.state.phase;
     if (!room) return;
-    if (frame.start && room.state.phase === "lobby") room.send(MSG.start);
+    // Entrée / Start servent à se déclarer prêt dans le salon (utile à la manette).
+    if (frame.start && phase === "lobby") this.hooks?.toggleReady();
+    if (phase !== "countdown" && phase !== "playing") return;
+
     if (frame.fire) {
       const fire: FireMessage = { aimX: frame.aim.x, aimY: frame.aim.y };
       room.send(MSG.fire, fire);

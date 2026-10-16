@@ -1,8 +1,8 @@
 import { MapSchema, Schema, type } from "@colyseus/schema";
-import type { Phase } from "@whosclaude/shared";
+import { DEFAULT_MODE, ROUNDS, type ModeId, type Phase } from "@whosclaude/shared";
 
 /**
- * État diffusé à tous les clients. Volontairement minimal :
+ * Personnage dans l'arène. Volontairement minimal :
  * rien ici ne doit permettre de distinguer un joueur d'un PNJ.
  */
 export class Entity extends Schema {
@@ -20,9 +20,29 @@ export class Crosshair extends Schema {
   @type("boolean") loaded = true;
 }
 
+/**
+ * Joueur tel que le voient les autres (salon, scores).
+ * Ne contient JAMAIS de référence à son entité.
+ */
+export class PlayerInfo extends Schema {
+  @type("string") name = "";
+  @type("uint8") color = 0;
+  @type("boolean") ready = false;
+  @type("uint8") score = 0;
+}
+
 export class GameState extends Schema {
   @type("string") phase: Phase = "lobby";
   @type("uint8") countdown = 0;
+
+  // Salon et match
+  @type("string") hostId = "";
+  @type("string") modeId: ModeId = DEFAULT_MODE;
+  @type("uint8") totalRounds: number = ROUNDS.default;
+  @type("uint8") round = 0;
+  @type({ map: PlayerInfo }) players = new MapSchema<PlayerInfo>();
+
+  // Manche en cours
   @type({ map: Entity }) entities = new MapSchema<Entity>();
   @type({ map: Crosshair }) crosshairs = new MapSchema<Crosshair>();
 }
