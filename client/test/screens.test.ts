@@ -1,18 +1,10 @@
 // @vitest-environment happy-dom
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MSG, type PlayerInfoState } from "@whosclaude/shared";
 import type { GameRoom } from "../src/net";
 import { LobbyScreen } from "../src/ui/LobbyScreen";
 import { PodiumScreen, rankPlayers } from "../src/ui/PodiumScreen";
-
-/** Charge le vrai index.html : les écrans retrouvent leurs éléments par id. */
-function loadPage() {
-  // (pas de new URL(import.meta.url) : happy-dom remplace URL par la sienne)
-  const html = readFileSync(resolve(process.cwd(), "client/index.html"), "utf8");
-  document.body.innerHTML = html.match(/<body[^>]*>([\s\S]*)<\/body>/)![1].replace(/<script[\s\S]*?<\/script>/g, "");
-}
+import { loadPage } from "./page";
 
 function player(name: string, overrides: Partial<PlayerInfoState> = {}): PlayerInfoState {
   return { name, color: 0, ready: false, score: 0, ...overrides };

@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
 import { IDLE, MAX_PLAYERS, MODES, NAME_MAX_LENGTH, RACE, ROOM_CODE, type ModeId } from "@whosclaude/shared";
 import { Entity } from "../src/GameState.js";
@@ -5,6 +6,7 @@ import { createMode, MODE_FACTORIES } from "../src/modes/index.js";
 import { RaceMode } from "../src/modes/RaceMode.js";
 import { uniqueName } from "../src/names.js";
 import { releaseRoomCode, reserveRoomCode } from "../src/roomCodes.js";
+import { useTestServer } from "./helpers.js";
 
 describe("registre des modes", () => {
   it("chaque mode déclaré a une fabrique, et l'inverse", () => {
@@ -65,12 +67,37 @@ describe("codes de room", () => {
   });
 });
 
+describe("serveur de test", () => {
+  const ctx = useTestServer();
+
+  it("écoute sur le port choisi, et non sur le port fixe de boot()", async () => {
+    expect(ctx.port).not.toBe(2568);
+    expect((ctx.colyseus.server as unknown as { port: number }).port).toBe(ctx.port);
+    // Le port est réellement occupé par notre serveur.
+    await expect(listenOn(ctx.port)).rejects.toThrow(/EADDRINUSE/);
+  });
+});
+
+function listenOn(port: number) {
+  return new Promise<void>((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(port, () => probe.close(() => resolve()));
+  });
+}
+
 describe("uniqueName", () => {
   it("suffixe les doublons et numérote les anonymes au plus petit numéro libre", () => {
     expect(uniqueName("Alice", new Set())).toBe("Alice");
     expect(uniqueName("Alice", new Set(["Alice"]))).toBe("Alice (2)");
     expect(uniqueName("Alice", new Set(["Alice", "Alice (2)"]))).toBe("Alice (3)");
     expect(uniqueName("", new Set(["Joueur 1", "Joueur 3"]))).toBe("Joueur 2");
+  });
+
+  it("ignore la casse et les variantes de largeur", () => {
+    expect(uniqueName("alice", ["Alice"])).toBe("alice (2)");
+    expect(uniqueName("Ａｌｉｃｅ", ["alice"])).toBe("Ａｌｉｃｅ (2)");
+    expect(uniqueName("", ["joueur 1"])).toBe("Joueur 2");
   });
 
   it("ne dépasse jamais la longueur maximale, même suffixé", () => {

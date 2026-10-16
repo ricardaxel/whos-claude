@@ -1,4 +1,6 @@
-import { boot, type ColyseusTestServer } from "@colyseus/testing";
+import { createServer, type AddressInfo } from "node:net";
+// Importer le paquet charge aussi ses extensions de Room (waitForMessage…).
+import { ColyseusTestServer } from "@colyseus/testing";
 import type { Server } from "colyseus";
 import type { Room as ClientRoom } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
@@ -9,19 +11,32 @@ import {
 import { createGameServer } from "../src/app.js";
 import { GameRoom } from "../src/GameRoom.js";
 
-const TEST_PORT = Number(process.env.TEST_PORT ?? 2598);
+/** Port libre choisi par le système : deux suites lancées en parallèle ne se gênent jamais. */
+export async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, () => {
+      const { port } = probe.address() as AddressInfo;
+      probe.close(() => resolve(port));
+    });
+  });
+}
 
 /**
  * Démarre un serveur de test par fichier ; le temps n'avance que via advance().
  * `configure` permet d'enregistrer des rooms de test supplémentaires.
+ * Pas de boot() : avec une instance de Server, il ignore le port et prend 2568 en dur.
  */
 export function useTestServer(configure?: (server: Server) => void) {
-  const ctx = { colyseus: undefined as unknown as ColyseusTestServer };
+  const ctx = { colyseus: undefined as unknown as ColyseusTestServer, port: 0 };
   beforeAll(async () => {
     GameRoom.autoTick = false;
     const server = createGameServer();
     configure?.(server);
-    ctx.colyseus = await boot(server, TEST_PORT);
+    ctx.port = process.env.TEST_PORT ? Number(process.env.TEST_PORT) : await freePort();
+    await server.listen(ctx.port);
+    ctx.colyseus = new ColyseusTestServer(server);
   });
   afterEach(async () => ctx.colyseus.cleanup());
   afterAll(async () => ctx.colyseus.shutdown());
@@ -162,7 +177,7 @@ export function checkInvariants(room: GameRoom) {
   if (ids.length > 0) expect(ids).toContain(state.hostId);
   const players = [...state.players.values()];
   expect(new Set(players.map((p) => p.color)).size).toBe(players.length);
-  expect(new Set(players.map((p) => p.name)).size).toBe(players.length);
+  expect(new Set(players.map((p) => p.name.normalize("NFKC").toLowerCase())).size).toBe(players.length);
   for (const p of players) expect(p.color).toBeLessThan(CROSSHAIR_COLORS.length);
 
   expect(state.totalRounds).toBeGreaterThanOrEqual(ROUNDS.min);

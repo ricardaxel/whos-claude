@@ -117,7 +117,15 @@ function finishRound(room: GameRoom) {
 
 // --- Fuzzing ---
 
-describe("fuzzing des messages réseau", () => {
+/**
+ * FUZZ_RUNS : nombre de séquences par fuzz (60 par défaut : les seuils de phase
+ * sont statistiques, en dessous ils deviennent instables ; montez-le pour un run long).
+ * FUZZ_SEED : rejoue exactement un tirage (la seed est affichée en cas d'échec).
+ */
+const FUZZ_RUNS = Number(process.env.FUZZ_RUNS ?? 60);
+const FUZZ_SEED = process.env.FUZZ_SEED ? Number(process.env.FUZZ_SEED) : (Date.now() ^ (Math.random() * 2 ** 31)) | 0;
+
+describe(`fuzzing des messages réseau (seed ${FUZZ_SEED})`, () => {
   it("depuis le salon : jamais d'erreur, et une bonne part des séquences atteint une manche", async () => {
     let runs = 0;
     let reachedPlaying = 0;
@@ -130,12 +138,12 @@ describe("fuzzing des messages réseau", () => {
         if (phases.has("playing")) reachedPlaying++;
         await Promise.all(players.map((p) => p.room.leave()));
       }),
-      { numRuns: 60 },
+      { numRuns: FUZZ_RUNS, seed: FUZZ_SEED },
     );
     console.log(`fuzz salon : ${reachedPlaying}/${runs} séquences atteignent une manche`);
     // Garde-fou : si les générateurs dérivent, le fuzz ne testerait plus que le salon.
     // ~47 % en moyenne sur 60 runs : 25 % laisse plus de 3 écarts-types de marge.
-    expect(reachedPlaying / runs).toBeGreaterThanOrEqual(0.25);
+    expect(reachedPlaying / runs, `seuil de phase non atteint, rejouer avec FUZZ_SEED=${FUZZ_SEED}`).toBeGreaterThanOrEqual(0.25);
   });
 
   it("en pleine manche, à 3 joueurs : tirs, éliminations, départs, enchaînement des manches", async () => {
@@ -150,11 +158,11 @@ describe("fuzzing des messages réseau", () => {
         for (const phase of phases) reached.set(phase, (reached.get(phase) ?? 0) + 1);
         await Promise.all(players.map((p) => p.room.connection.isOpen && p.room.leave()));
       }),
-      { numRuns: 60 },
+      { numRuns: FUZZ_RUNS, seed: FUZZ_SEED },
     );
     console.log("fuzz manche, phases atteintes :", Object.fromEntries(reached));
-    expect(reached.get("roundEnd") ?? 0).toBeGreaterThan(0);
-    expect(reached.get("podium") ?? 0).toBeGreaterThan(0);
+    expect(reached.get("roundEnd") ?? 0, `rejouer avec FUZZ_SEED=${FUZZ_SEED}`).toBeGreaterThan(0);
+    expect(reached.get("podium") ?? 0, `rejouer avec FUZZ_SEED=${FUZZ_SEED}`).toBeGreaterThan(0);
   });
 
   it("des options de connexion arbitraires donnent toujours un pseudo valide", async () => {
