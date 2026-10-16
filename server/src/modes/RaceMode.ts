@@ -14,6 +14,7 @@ export class RaceMode implements GameMode {
   readonly sprintMultiplier = RACE.sprintMultiplier;
   readonly crosshairs = true;
   readonly knife = false;
+  readonly knifeCooldown = 0;
   readonly roundSeconds = 0;
 
   spawnPositions() {

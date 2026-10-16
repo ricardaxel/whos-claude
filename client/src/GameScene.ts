@@ -7,6 +7,7 @@ import {
 import type { GameRoom } from "./net";
 import { InputManager } from "./input/InputManager";
 import { InputSender } from "./input/InputSender";
+import { onFocusLost } from "./input/focus";
 import { GamepadSource } from "./input/GamepadSource";
 import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
 import { TouchSource } from "./input/TouchSource";
@@ -36,6 +37,9 @@ interface CharacterView extends View<Phaser.GameObjects.Sprite> {
   facing: Facing;
   moving: boolean;
   alive: boolean;
+  /** Dernière image et dernière hauteur affichées : on ne touche au sprite que si elles changent. */
+  frame: string;
+  depthY: number;
 }
 
 /** Les sprites 16×16 sont affichés à ×2. */
@@ -98,7 +102,12 @@ export class GameScene extends Phaser.Scene {
 
   create() {
     this.inputs = new InputManager([new KeyboardMouseSource(this), new GamepadSource(this), new TouchSource(this)]);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.inputs.destroy());
+    // Onglet ou appli en arrière-plan : on lâche les commandes, côté serveur aussi.
+    const stopListening = onFocusLost(() => this.releaseInputs());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.inputs.destroy();
+      stopListening();
+    });
     this.input.setDefaultCursor("none");
     registerCharacterTextures(this);
     registerEffectTextures(this);
@@ -132,7 +141,7 @@ export class GameScene extends Phaser.Scene {
         .sprite(entity.x, entity.y, lookTexture(entity.look ?? 0), frameName(facing, 0))
         .setScale(SPRITE_SCALE)
         .setDepth(DEPTH.entity);
-      const view: CharacterView = { object: sprite, targetX: entity.x, targetY: entity.y, facing, moving: false, alive: true };
+      const view: CharacterView = { object: sprite, targetX: entity.x, targetY: entity.y, facing, moving: false, alive: true, frame: frameName(facing, 0), depthY: NaN };
       this.entities.set(id, view);
       $(entity).onChange(() => {
         view.targetX = entity.x;
@@ -313,8 +322,11 @@ export class GameScene extends Phaser.Scene {
     const step = WALK_CYCLE[Math.floor(time / WALK_FRAME_MS) % WALK_CYCLE.length];
     for (const view of this.entities.values()) {
       if (!view.alive) continue;
-      view.object.setFrame(frameName(view.facing, view.moving ? step : 0));
-      view.object.setDepth(DEPTH.entity + view.object.y / ARENA.height / 2);
+      const frame = frameName(view.facing, view.moving ? step : 0);
+      if (frame !== view.frame) view.object.setFrame((view.frame = frame));
+      // setDepth relance un tri de toute la scène : seulement quand le personnage a bougé d'un pixel.
+      const y = Math.round(view.object.y);
+      if (y !== view.depthY) view.object.setDepth(DEPTH.entity + (view.depthY = y) / ARENA.height / 2);
     }
   }
 
@@ -325,6 +337,12 @@ export class GameScene extends Phaser.Scene {
     if (!crosshair) return;
     this.inputs.setAim(crosshair.targetX, crosshair.targetY);
     this.aimSynced = true;
+  }
+
+  private releaseInputs() {
+    const room = this.room;
+    if (!room) return;
+    for (const { type, message } of this.sender.release()) room.send(type, message);
   }
 
   private sendInputs(frame: InputFrame, time: number) {

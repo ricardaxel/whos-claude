@@ -75,6 +75,17 @@ export class InputSender {
     this.lastAimAt = -Infinity;
   }
 
+  /**
+   * La fenêtre perd le focus (onglet en arrière-plan, appli mise de côté, écran verrouillé) :
+   * on lâche tout. Sinon le serveur garderait la dernière direction et le personnage
+   * continuerait d'avancer seul, jusqu'au mur ou même jusqu'à l'arrivée.
+   */
+  release(): Outgoing[] {
+    const moving = this.lastDir !== IDLE || this.lastSprint;
+    this.reset();
+    return moving ? [{ type: MSG.move, message: { dir: IDLE, sprint: false } }] : [];
+  }
+
   update(frame: InputFrame, phase: Phase | undefined, time: number, modeId: ModeId = "race"): Outgoing[] {
     if (phase !== "countdown" && phase !== "playing") return [];
     const controls = CONTROLS[modeId];

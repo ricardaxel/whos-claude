@@ -1,6 +1,6 @@
 import { getStateCallbacks } from "colyseus.js";
 import type { Phase } from "@whosclaude/shared";
-import { createRoom, GameRoom, joinRoom } from "./net";
+import { createRoom, GameRoom, joinRoom, reconnectRoom } from "./net";
 import type { GameScene } from "./GameScene";
 import { showScreen, type Screen } from "./ui/dom";
 import { setupFullscreen } from "./ui/fullscreen";
@@ -14,7 +14,16 @@ import { PodiumScreen } from "./ui/PodiumScreen";
  * Les menus ne se redessinent que sur les changements qui les concernent,
  * jamais à chaque patch de la manche.
  */
+/** Code de fermeture d'un départ volontaire (room.leave()) côté Colyseus. */
+const CONSENTED_LEAVE = 4000;
+
 export class Session {
+  /**
+   * Après une coupure, tentatives de retour (ms d'attente avant chacune). Le serveur
+   * garde la place 20 s : on essaie pendant une quinzaine de secondes.
+   */
+  static reconnectDelaysMs = [300, 1000, 2000, 4000, 7000];
+
   private room?: GameRoom;
   private leavingOnPurpose = false;
   private home: HomeScreen;
@@ -33,7 +42,10 @@ export class Session {
   }
 
   private async enter(pending: Promise<GameRoom>) {
-    const room = await pending;
+    this.attachRoom(await pending);
+  }
+
+  private attachRoom(room: GameRoom) {
     this.room = room;
     this.leavingOnPurpose = false;
     // L'URL devient le lien d'invitation.
@@ -42,7 +54,7 @@ export class Session {
     this.lobby.attach(room);
     this.scene.attach(room, { toggleReady: () => this.lobby.toggleReady() });
     this.bindMenus(room);
-    room.onLeave(() => this.onLeft());
+    room.onLeave((code) => void this.onLeft(code));
   }
 
   private bindMenus(room: GameRoom) {
@@ -76,9 +88,26 @@ export class Session {
     await this.room?.leave();
   }
 
-  private onLeft() {
+  private async onLeft(code?: number) {
+    const token = this.room?.reconnectionToken;
     this.scene.detach();
     this.room = undefined;
+
+    // Coupure involontaire (écran verrouillé, wifi…) : on tente de reprendre sa place.
+    if (!this.leavingOnPurpose && code !== CONSENTED_LEAVE && token) {
+      showScreen("home");
+      this.home.show("Connexion perdue… reconnexion en cours");
+      for (const delay of Session.reconnectDelaysMs) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        try {
+          this.attachRoom(await reconnectRoom(token));
+          return;
+        } catch {
+          // la partie n'est pas encore joignable : on réessaie
+        }
+      }
+    }
+
     history.replaceState(null, "", location.pathname);
     showScreen("home");
     this.home.show(this.leavingOnPurpose ? "" : "Connexion perdue avec la partie.");

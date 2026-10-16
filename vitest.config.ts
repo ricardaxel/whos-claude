@@ -12,6 +12,12 @@ export default defineConfig({
       provider: "v8",
       include: ["shared/src/**", "server/src/**", "client/src/**"],
       reporter: ["text-summary", "text"],
+      // npm run test:coverage échoue si la couverture régresse sur la logique de jeu et les inputs.
+      thresholds: {
+        "server/src/**": { lines: 95, branches: 90 },
+        "shared/src/**": { lines: 95 },
+        "client/src/input/**": { lines: 95 },
+      },
     },
   },
 });

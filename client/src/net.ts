@@ -10,6 +10,11 @@ export async function createRoom(options: JoinOptions): Promise<GameRoom> {
   return client.create(ROOM_NAME, options);
 }
 
+/** Retour dans une partie après une coupure, avec le jeton de la connexion perdue. */
+export async function reconnectRoom(token: string): Promise<GameRoom> {
+  return client.reconnect(token);
+}
+
 export async function joinRoom(code: string, options: JoinOptions): Promise<GameRoom> {
   try {
     return await client.joinById(code.toUpperCase(), options);

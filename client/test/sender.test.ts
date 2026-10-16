@@ -119,3 +119,22 @@ describe("InputSender en mode assassins", () => {
     expect(types(sender.update(frame({ action: true }), "playing", 10, "race"))).not.toContain(MSG.stab);
   });
 });
+
+describe("InputSender.release (perte de focus)", () => {
+  it("lâche la direction et le sprint côté serveur, puis repart de zéro", () => {
+    const sender = new InputSender();
+    sender.update(frame({ advance: true, sprint: true }), "playing", 0, "race");
+    expect(sender.release()).toEqual([{ type: MSG.move, message: { dir: IDLE, sprint: false } }]);
+    expect(sender.release()).toEqual([]); // rien à relâcher deux fois
+    // Au retour, la touche toujours enfoncée est renvoyée normalement.
+    expect(sender.update(frame({ advance: true }), "playing", 100, "race")).toContainEqual({
+      type: MSG.move, message: { dir: 0, sprint: false },
+    });
+  });
+
+  it("n'envoie rien si on était déjà immobile", () => {
+    const sender = new InputSender();
+    sender.update(frame(), "playing", 0, "race");
+    expect(sender.release()).toEqual([]);
+  });
+});

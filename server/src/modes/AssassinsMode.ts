@@ -21,6 +21,7 @@ export class AssassinsMode implements GameMode {
   readonly sprintMultiplier = 1;
   readonly crosshairs = false;
   readonly knife = true;
+  readonly knifeCooldown = ASSASSINS.knifeCooldown;
   readonly roundSeconds = ASSASSINS.roundSeconds;
 
   private lightTarget = { x: 0, y: 0 };

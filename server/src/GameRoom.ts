@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { Client, Room, ServerError } from "colyseus";
 import {
   AIM, ARENA, ASSASSINS, type KnifeMessage, LOOK_COUNT, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
@@ -19,7 +20,13 @@ interface Controller extends NpcBrain {
   input: Dir;
   /** Sprint demandé par le joueur. Jamais vrai pour un PNJ. */
   sprint: boolean;
+  /**
+   * Joueur momentanément déconnecté : l'IA conduit son entité en attendant son retour.
+   * Elle ne s'arrête pas net (ce qui le trahirait) et continue comme un PNJ.
+   */
+  autopilot: boolean;
 }
+
 
 /** Ce qu'un joueur contrôle pendant la manche en cours. Jamais synchronisé. */
 interface RoundPlayer {
@@ -46,6 +53,8 @@ export class GameRoom extends Room<GameState> {
    * de création viennent du client, qui pourrait sinon figer une partie.
    */
   static autoTick = true;
+  /** Délai accordé à un joueur déconnecté (écran verrouillé, wifi instable…) pour revenir. */
+  static reconnectionSeconds = 20;
 
   maxClients = MAX_PLAYERS;
   state = new GameState();
@@ -58,6 +67,8 @@ export class GameRoom extends Room<GameState> {
   private roundClock = 0;
   /** Secondes restantes avant la fin forcée de la manche (si le mode a une limite). */
   private roundRemaining = 0;
+  /** Joueurs au départ de la manche : un départ ne doit pas priver le dernier restant de sa victoire. */
+  private roundStartPlayers = 0;
 
   onCreate() {
     // Le code de la room sert directement d'identifiant : on rejoint avec joinById(code).
@@ -72,10 +83,13 @@ export class GameRoom extends Room<GameState> {
 
     this.onMessage(MSG.settings, (client, message: SettingsMessage) => {
       if (!this.isHost(client) || this.state.phase !== "lobby" || !message) return;
+      const before = `${this.state.modeId}/${this.state.totalRounds}`;
       if (isModeId(message.modeId)) this.state.modeId = message.modeId;
       if (Number.isInteger(message.rounds)) {
         this.state.totalRounds = Math.max(ROUNDS.min, Math.min(ROUNDS.max, message.rounds!));
       }
+      // Être prêt, c'est accepter ces réglages-là : s'ils changent, chacun doit le redire.
+      if (`${this.state.modeId}/${this.state.totalRounds}` !== before) this.state.players.forEach((p) => (p.ready = false));
     });
 
     this.onMessage(MSG.startMatch, (client) => {
@@ -101,7 +115,7 @@ export class GameRoom extends Room<GameState> {
       const player = this.roundPlayers.get(client.sessionId);
       if (!player?.alive || !this.mode.knife || this.state.phase !== "playing") return;
       if (this.roundClock < player.knifeReadyAt) return;
-      player.knifeReadyAt = this.roundClock + ASSASSINS.knifeCooldown;
+      player.knifeReadyAt = this.roundClock + this.mode.knifeCooldown;
       this.stab(player);
     });
 
@@ -139,21 +153,61 @@ export class GameRoom extends Room<GameState> {
     if (!this.state.hostId) this.state.hostId = client.sessionId;
   }
 
-  onLeave(client: Client) {
-    this.state.players.delete(client.sessionId);
-    if (this.state.hostId === client.sessionId) {
+  async onLeave(client: Client, consented?: boolean) {
+    // Départ involontaire : on garde la place du joueur quelques secondes.
+    if (!consented && (await this.waitForReconnection(client))) return;
+    this.removePlayer(client.sessionId);
+  }
+
+  /**
+   * Garde la place d'un joueur déconnecté (pseudo, couleur, score, statut d'hôte, entité).
+   * Pendant l'attente, l'IA conduit son entité. Renvoie true s'il est revenu à temps.
+   */
+  private async waitForReconnection(client: Client): Promise<boolean> {
+    const autopilot = (on: boolean) => {
+      const player = this.roundPlayers.get(client.sessionId);
+      const controller = player && this.controllers.get(player.entityId);
+      if (!controller) return;
+      controller.autopilot = on;
+      controller.sprint = false;
+      controller.input = IDLE;
+      controller.timer = 0;
+    };
+    autopilot(true);
+    let back: Client;
+    try {
+      back = await this.allowReconnection(client, GameRoom.reconnectionSeconds);
+    } catch {
+      return false; // délai écoulé : départ définitif
+    }
+    autopilot(false);
+    // Revenu : on lui rend son personnage, ou on lui en confie un si une manche a commencé entre-temps.
+    const player = this.roundPlayers.get(back.sessionId);
+    if (player) {
+      const message: AssignMessage = { entityId: player.entityId, crosshairId: player.crosshairId };
+      back.send(MSG.assign, message);
+    } else if (this.state.phase === "countdown" || this.state.phase === "playing") {
+      this.addRoundPlayer(back);
+    }
+    return true;
+  }
+
+  private removePlayer(sessionId: string) {
+    this.state.players.delete(sessionId);
+    if (this.state.hostId === sessionId) {
       // L'hôte part : le plus ancien joueur restant prend la main.
       this.state.hostId = this.state.players.keys().next().value ?? "";
     }
 
-    const player = this.roundPlayers.get(client.sessionId);
+    const player = this.roundPlayers.get(sessionId);
     if (!player) return;
-    this.roundPlayers.delete(client.sessionId);
+    this.roundPlayers.delete(sessionId);
     if (player.crosshairId) this.state.crosshairs.delete(player.crosshairId);
     // L'entité redevient un PNJ et continue sa vie.
     const controller = this.controllers.get(player.entityId)!;
     controller.playerId = null;
     controller.sprint = false;
+    controller.autopilot = false;
     controller.timer = 0;
   }
 
@@ -191,6 +245,7 @@ export class GameRoom extends Room<GameState> {
     this.state.round++;
     for (const position of this.mode.spawnPositions()) this.spawnEntity(position.x, position.y);
     for (const client of this.clients) this.addRoundPlayer(client);
+    this.roundStartPlayers = this.roundPlayers.size;
     this.mode.startRound?.(this.state);
     this.roundClock = 0;
     this.roundRemaining = this.mode.roundSeconds;
@@ -283,6 +338,7 @@ export class GameRoom extends Room<GameState> {
     controller.playerId = client.sessionId;
     controller.input = this.state.entities.get(entityId)!.dir as Dir;
     controller.sprint = false;
+    controller.autopilot = false;
 
     let crosshairId: string | null = null;
     if (this.mode.crosshairs) {
@@ -312,7 +368,7 @@ export class GameRoom extends Room<GameState> {
     entity.look = Math.floor(Math.random() * LOOK_COUNT);
     this.state.entities.set(id, entity);
     // Délai initial aléatoire pour que les PNJ ne démarrent pas tous ensemble.
-    this.controllers.set(id, { playerId: null, input: IDLE, sprint: false, timer: Math.random() * 1.2 });
+    this.controllers.set(id, { playerId: null, input: IDLE, sprint: false, autopilot: false, timer: Math.random() * 1.2 });
   }
 
   private moveCrosshairs(dt: number) {
@@ -344,7 +400,7 @@ export class GameRoom extends Room<GameState> {
     this.state.entities.forEach((entity, id) => {
       if (!entity.alive) return;
       const controller = this.controllers.get(id)!;
-      if (controller.playerId === null) this.mode.thinkNpc(entity, controller, dt);
+      if (controller.playerId === null || controller.autopilot) this.mode.thinkNpc(entity, controller, dt);
       else entity.dir = controller.input;
 
       // Le sprint n'existe que pour les joueurs : un PNJ ne va jamais plus vite que SPEED.
@@ -420,12 +476,14 @@ export class GameRoom extends Room<GameState> {
     if (winner) return this.endRound(winner.entityId);
 
     // Dernier survivant, ou plus personne : seulement s'il y avait de la concurrence.
-    const playerCount = this.roundPlayers.size;
+    // Compté au départ de la manche : si les autres sont partis, le dernier restant gagne.
+    const playerCount = Math.max(this.roundStartPlayers, this.roundPlayers.size);
     if (playerCount >= 2 && aliveCount === 1) return this.endRound(lastAlive!.entityId);
     if (playerCount >= 1 && aliveCount === 0) return this.endRound(null);
   }
 }
 
+/** Identifiant public aléatoire, de longueur fixe (rien n'y trahit l'ordre de création). */
 function randomId() {
-  return Math.random().toString(36).slice(2, 10);
+  return randomBytes(6).toString("hex");
 }

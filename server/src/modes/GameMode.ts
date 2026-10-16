@@ -23,6 +23,8 @@ export interface GameMode {
   readonly crosshairs: boolean;
   /** Couteau au corps à corps (les PNJ ne frappent jamais). */
   readonly knife: boolean;
+  /** Délai minimal entre deux coups de couteau d'un même joueur (s). */
+  readonly knifeCooldown: number;
   /** Durée max d'une manche en secondes (0 = sans limite) ; au-delà, personne ne gagne. */
   readonly roundSeconds: number;
 
