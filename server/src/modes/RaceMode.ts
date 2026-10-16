@@ -1,4 +1,4 @@
-import { ARENA, Dir, IDLE, RACE } from "@whosclaude/shared";
+import { Dir, ENTITY_RADIUS, IDLE, PLAYFIELD, RACE } from "@whosclaude/shared";
 import type { Entity } from "../GameState.js";
 import type { GameMode, NpcBrain } from "./GameMode.js";
 
@@ -17,8 +17,10 @@ export class RaceMode implements GameMode {
   readonly roundSeconds = 0;
 
   spawnPositions() {
-    const gap = ARENA.height / (this.entityCount + 1);
-    return Array.from({ length: this.entityCount }, (_, i) => ({ x: RACE.startX, y: gap * (i + 1) }));
+    // Répartis sur toute la hauteur de la salle, entre le mur du haut et celui du bas.
+    const top = PLAYFIELD.top + ENTITY_RADIUS;
+    const span = PLAYFIELD.bottom - PLAYFIELD.top - 2 * ENTITY_RADIUS;
+    return Array.from({ length: this.entityCount }, (_, i) => ({ x: RACE.startX, y: top + (span * (i + 0.5)) / this.entityCount }));
   }
 
   mapInput(dir: Dir): Dir {

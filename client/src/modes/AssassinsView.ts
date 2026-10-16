@@ -1,6 +1,7 @@
 import type Phaser from "phaser";
 import { ARENA, type GameStateShape } from "@whosclaude/shared";
 import { DEPTH } from "./depth";
+import { DungeonBackdrop } from "./DungeonBackdrop";
 import type { ModeView } from "./ModeView";
 
 /** Opacité de l'obscurité : assez sombre pour cacher un geste, assez claire pour se déplacer. */
@@ -14,7 +15,7 @@ const SMOOTHING = 8;
 const TEXTURE_SCALE = 2;
 
 /**
- * Assassins : une salle sombre (plancher) et une lumière d'ambiance qui erre.
+ * Assassins : la salle de donjon, plongée dans le noir, et une lumière d'ambiance qui erre.
  *
  * L'obscurité est UNE image, générée une seule fois : un voile noir deux fois plus grand
  * que l'arène, percé en son centre d'un trou à bord doux. À chaque frame, on se contente de
@@ -29,13 +30,13 @@ export class AssassinsView implements ModeView {
 
   readonly initialFacing = "down" as const;
 
-  private floor: Phaser.GameObjects.Rectangle;
+  private backdrop: DungeonBackdrop;
   private darkness?: Phaser.GameObjects.Image;
   private darknessRadius = 0;
   private light = { x: ARENA.width / 2, y: ARENA.height / 2, placed: false };
 
   constructor(private readonly scene: Phaser.Scene) {
-    this.floor = scene.add.rectangle(0, 0, ARENA.width, ARENA.height, 0x3a3128).setOrigin(0).setDepth(DEPTH.decor);
+    this.backdrop = new DungeonBackdrop(scene);
   }
 
   update(state: GameStateShape, dt: number) {
@@ -57,7 +58,7 @@ export class AssassinsView implements ModeView {
   }
 
   destroy() {
-    this.floor.destroy();
+    this.backdrop.destroy();
     this.darkness?.destroy();
   }
 

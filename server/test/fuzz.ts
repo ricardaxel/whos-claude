@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { expect } from "vitest";
-import { ARENA, ENTITY_RADIUS, MSG, type Phase } from "@whosclaude/shared";
+import { ARENA, ENTITY_RADIUS, MSG, PLAYFIELD, type Phase } from "@whosclaude/shared";
 import type { GameRoom } from "../src/GameRoom.js";
 import { advance, checkInvariants, internals, send, waitFor, type Player } from "./helpers.js";
 
@@ -124,7 +124,9 @@ export async function runCommands(room: GameRoom, players: Player[], commands: C
         const self = attacker && room.state.entities.get(attacker.entityId);
         const target = victim && room.state.entities.get(victim.entityId);
         if (self && target) {
-          self.x = target.x + ENTITY_RADIUS * 1.5;
+          // Juste à côté de la cible, du côté où il y a de la place (jamais dans un mur).
+          const side = target.x + 2 <= PLAYFIELD.right - ENTITY_RADIUS ? 1 : -1;
+          self.x = target.x + side * 2;
           self.y = target.y;
         }
         await send(room, players[command.from], MSG.stab);

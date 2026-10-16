@@ -1,8 +1,15 @@
-import { ARENA, ASSASSINS, DIR_VECTORS, ENTITY_RADIUS, IDLE, type Dir } from "@whosclaude/shared";
+import { ASSASSINS, DIR_VECTORS, ENTITY_RADIUS, IDLE, PLAYFIELD, type Dir } from "@whosclaude/shared";
 import type { Entity, GameState } from "../GameState.js";
 import type { GameMode, NpcBrain } from "./GameMode.js";
 
 const MARGIN = ENTITY_RADIUS * 3;
+/** Intérieur de la salle, avec une marge : là où l'on place les personnages et la lumière. */
+const AREA = {
+  left: PLAYFIELD.left + MARGIN,
+  right: PLAYFIELD.right - MARGIN,
+  top: PLAYFIELD.top + MARGIN,
+  bottom: PLAYFIELD.bottom - MARGIN,
+};
 
 /**
  * Assassins : une salle sombre, tout le monde se déplace dans les 8 directions,
@@ -22,12 +29,12 @@ export class AssassinsMode implements GameMode {
   spawnPositions() {
     const cols = 6;
     const rows = Math.ceil(this.entityCount / cols);
-    const cellW = (ARENA.width - 2 * MARGIN) / cols;
-    const cellH = (ARENA.height - 2 * MARGIN) / rows;
+    const cellW = (AREA.right - AREA.left) / cols;
+    const cellH = (AREA.bottom - AREA.top) / rows;
     const jitter = (cell: number) => (Math.random() - 0.5) * (cell - 2 * ENTITY_RADIUS) * 0.8;
     return Array.from({ length: this.entityCount }, (_, i) => ({
-      x: MARGIN + cellW * ((i % cols) + 0.5) + jitter(cellW),
-      y: MARGIN + cellH * (Math.floor(i / cols) + 0.5) + jitter(cellH),
+      x: AREA.left + cellW * ((i % cols) + 0.5) + jitter(cellW),
+      y: AREA.top + cellH * (Math.floor(i / cols) + 0.5) + jitter(cellH),
     }));
   }
 
@@ -79,15 +86,15 @@ export class AssassinsMode implements GameMode {
 }
 
 function randomPoint() {
-  return { x: MARGIN + Math.random() * (ARENA.width - 2 * MARGIN), y: MARGIN + Math.random() * (ARENA.height - 2 * MARGIN) };
+  return { x: AREA.left + Math.random() * (AREA.right - AREA.left), y: AREA.top + Math.random() * (AREA.bottom - AREA.top) };
 }
 
 function directionAwayFromWalls(entity: Entity): Dir {
   const candidates = DIR_VECTORS.flatMap(([vx, vy], dir) => {
-    if (vx < 0 && entity.x < MARGIN) return [];
-    if (vx > 0 && entity.x > ARENA.width - MARGIN) return [];
-    if (vy < 0 && entity.y < MARGIN) return [];
-    if (vy > 0 && entity.y > ARENA.height - MARGIN) return [];
+    if (vx < 0 && entity.x < AREA.left) return [];
+    if (vx > 0 && entity.x > AREA.right) return [];
+    if (vy < 0 && entity.y < AREA.top) return [];
+    if (vy > 0 && entity.y > AREA.bottom) return [];
     return [dir as Dir];
   });
   return candidates[Math.floor(Math.random() * candidates.length)];

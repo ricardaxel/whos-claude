@@ -5,7 +5,7 @@ import type { Server } from "colyseus";
 import type { Room as ClientRoom } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import {
-  ARENA, CROSSHAIR_COLORS, ENTITY_RADIUS, MSG, ROOM_NAME, ROUNDS, TICK_RATE,
+  ARENA, CROSSHAIR_COLORS, ENTITY_RADIUS, MSG, PLAYFIELD, ROOM_NAME, ROUNDS, TICK_RATE,
   type AssignMessage, type KnifeMessage, type ModeId, type RevealMessage, type ShotMessage,
 } from "@whosclaude/shared";
 import { createGameServer } from "../src/app.js";
@@ -177,7 +177,9 @@ export async function shoot(room: GameRoom, shooter: Player, entityId: string) {
 export async function stab(room: GameRoom, attacker: Player, targetEntityId: string) {
   const self = room.state.entities.get(internals(room).roundPlayers.get(attacker.sessionId)!.entityId)!;
   const target = room.state.entities.get(targetEntityId)!;
-  self.x = target.x + ENTITY_RADIUS * 1.5;
+  // Juste à côté de la cible, du côté où il y a de la place (jamais dans un mur).
+  const side = target.x + 2 <= PLAYFIELD.right - ENTITY_RADIUS ? 1 : -1;
+  self.x = target.x + side * 2; // collé à la cible : c'est forcément elle la plus proche
   self.y = target.y;
   const before = attacker.knives.length;
   await send(room, attacker, MSG.stab);
@@ -216,10 +218,18 @@ export function checkInvariants(room: GameRoom) {
     expect(rp.aimX).toBeGreaterThanOrEqual(0);
     expect(rp.aimX).toBeLessThanOrEqual(ARENA.width);
   }
-  state.crosshairs.forEach((c) => {
-    expect(c.x).toBeGreaterThanOrEqual(0);
-    expect(c.x).toBeLessThanOrEqual(ARENA.width);
-    expect(c.y).toBeGreaterThanOrEqual(0);
-    expect(c.y).toBeLessThanOrEqual(ARENA.height);
+  // Vérifié à chaque tick sur chaque entité : comparaisons simples (expect est trop
+  // coûteux dans cette boucle), avec une erreur explicite en cas de violation.
+  state.entities.forEach((e, id) => {
+    if (!inside(e, PLAYFIELD)) throw new Error(`entité ${id} hors de la salle : (${e.x}, ${e.y})`);
   });
+  state.crosshairs.forEach((c, id) => {
+    if (!inside(c, { left: 0, top: 0, right: ARENA.width, bottom: ARENA.height })) {
+      throw new Error(`viseur ${id} hors de l'arène : (${c.x}, ${c.y})`);
+    }
+  });
+}
+
+function inside(p: { x: number; y: number }, box: { left: number; top: number; right: number; bottom: number }) {
+  return p.x >= box.left && p.x <= box.right && p.y >= box.top && p.y <= box.bottom;
 }

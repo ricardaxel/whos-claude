@@ -93,6 +93,12 @@ Les grilles de pixels sont dans `client/src/sprites/characters.ts` (une tête, u
 une palette par personnage) ; le jeu en fait ses textures au démarrage.
 `npm run sprites:preview` régénère les aperçus dans `docs/sprites/`.
 
+Les deux modes se jouent dans la même **salle de donjon** (`client/src/sprites/dungeon.ts`) :
+tuiles 16×16, murs de briques avec torches et tentures, dalles, quelques os et gravats.
+L'éclairage tamisé (ambiance basse, coins sombres, halo chaud des torches) est calculé
+une fois au démarrage ; les torches vacillent en jeu. Les personnages restent dans la
+salle : la zone praticable (`PLAYFIELD`) exclut les murs, côté serveur.
+
 ## Structure
 
 - `shared/` : constantes, règles de déplacement et messages réseau communs.

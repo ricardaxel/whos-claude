@@ -5,6 +5,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { characterFrames, FACINGS, LOOKS, paletteOf, SPRITE_SIZE, type Grid, type Palette } from "../client/src/sprites/characters";
+import { renderDungeon, ROOM_HEIGHT, ROOM_SCALE, ROOM_WIDTH } from "../client/src/sprites/dungeon";
 import { RgbaImage } from "./png";
 
 const BACKGROUND = "#3a3128";
@@ -47,6 +48,25 @@ mkdirSync(OUT_DIR, { recursive: true });
     );
   });
   writeFileSync(resolve(OUT_DIR, "planche-v1.png"), image.toPng());
+}
+
+// 3. La salle de donjon à l'échelle du jeu, avec quelques personnages pour juger l'ensemble.
+{
+  const image = new RgbaImage(ROOM_WIDTH * ROOM_SCALE, ROOM_HEIGHT * ROOM_SCALE);
+  const room = renderDungeon();
+  for (let y = 0; y < ROOM_HEIGHT; y++) {
+    for (let x = 0; x < ROOM_WIDTH; x++) {
+      const k = (y * ROOM_WIDTH + x) * 4;
+      const hexColor = "#" + [room[k], room[k + 1], room[k + 2]].map((v) => v.toString(16).padStart(2, "0")).join("");
+      image.rect(x * ROOM_SCALE, y * ROOM_SCALE, ROOM_SCALE, ROOM_SCALE, hexColor);
+    }
+  }
+  const spots = [[140, 160, "down"], [300, 250, "right"], [520, 140, "left"], [700, 330, "down"], [210, 430, "up"], [430, 470, "right"], [820, 200, "left"], [620, 540, "down"], [90, 560, "right"], [880, 480, "up"]] as const;
+  spots.forEach(([x, y, facing], i) => {
+    const look = LOOKS[i % LOOKS.length];
+    draw(image, characterFrames(look)[facing][i % 3], paletteOf(look), x - 16, y - 16, 2);
+  });
+  writeFileSync(resolve(OUT_DIR, "donjon-v1.png"), image.toPng());
 }
 
 console.log(`Images écrites dans ${OUT_DIR}`);

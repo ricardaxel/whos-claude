@@ -1,6 +1,11 @@
 // Constantes et règles partagées entre le serveur et le client.
 
 export const ARENA = { width: 960, height: 640 } as const;
+/**
+ * Zone praticable : l'intérieur de la salle, murs exclus (une tuile de 32 px sur les
+ * côtés et en bas, deux en haut pour la façade du mur). Les personnages y restent.
+ */
+export const PLAYFIELD = { left: 32, top: 64, right: ARENA.width - 32, bottom: ARENA.height - 32 } as const;
 export const ENTITY_RADIUS = 12;
 export const TICK_RATE = 20; // ticks serveur par seconde
 export const SPEED = 70; // px/s, identique pour joueurs et PNJ
@@ -35,8 +40,9 @@ export function dirFromAxes(dx: number, dy: number): Dir {
 export function step(x: number, y: number, dir: Dir, dt: number, speed: number = SPEED) {
   if (dir === IDLE) return { x, y, blocked: false };
   const [vx, vy] = DIR_VECTORS[dir];
-  const nx = clamp(x + vx * speed * dt, ENTITY_RADIUS, ARENA.width - ENTITY_RADIUS);
-  const ny = clamp(y + vy * speed * dt, ENTITY_RADIUS, ARENA.height - ENTITY_RADIUS);
+  // Les personnages restent dans la salle : les murs bornent leur centre.
+  const nx = clamp(x + vx * speed * dt, PLAYFIELD.left + ENTITY_RADIUS, PLAYFIELD.right - ENTITY_RADIUS);
+  const ny = clamp(y + vy * speed * dt, PLAYFIELD.top + ENTITY_RADIUS, PLAYFIELD.bottom - ENTITY_RADIUS);
   const blocked = nx !== x + vx * speed * dt || ny !== y + vy * speed * dt;
   return { x: nx, y: ny, blocked };
 }

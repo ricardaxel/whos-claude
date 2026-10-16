@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
   ARENA, clampToArena, CROSSHAIR_COLORS, dirFromAxes, ENTITY_RADIUS, IDLE, isDir, isModeId, MAX_PLAYERS,
-  NAME_MAX_LENGTH, sanitizeName, SPEED, step,
+  NAME_MAX_LENGTH, PLAYFIELD, sanitizeName, SPEED, step,
 } from "../src/index.js";
 
 describe("sanitizeName", () => {
@@ -75,9 +75,27 @@ describe("règles partagées", () => {
     expect(moved.x).toBeCloseTo(100 + SPEED);
     expect(moved.blocked).toBe(false);
     expect(step(100, 100, IDLE, 1)).toEqual({ x: 100, y: 100, blocked: false });
-    const wall = step(ARENA.width - ENTITY_RADIUS, 100, 0, 1);
-    expect(wall.x).toBe(ARENA.width - ENTITY_RADIUS);
+    const wall = step(PLAYFIELD.right - ENTITY_RADIUS, 100, 0, 1);
+    expect(wall.x).toBe(PLAYFIELD.right - ENTITY_RADIUS);
     expect(wall.blocked).toBe(true);
+  });
+
+  it("propriété : on ne sort jamais de la salle, quelle que soit la direction", () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: PLAYFIELD.left, max: PLAYFIELD.right, noNaN: true }),
+        fc.double({ min: PLAYFIELD.top, max: PLAYFIELD.bottom, noNaN: true }),
+        fc.integer({ min: 0, max: 7 }),
+        fc.double({ min: 0, max: 30, noNaN: true }),
+        (x, y, dir, dt) => {
+          const next = step(x, y, dir as 0, dt);
+          expect(next.x).toBeGreaterThanOrEqual(PLAYFIELD.left + ENTITY_RADIUS);
+          expect(next.x).toBeLessThanOrEqual(PLAYFIELD.right - ENTITY_RADIUS);
+          expect(next.y).toBeGreaterThanOrEqual(PLAYFIELD.top + ENTITY_RADIUS);
+          expect(next.y).toBeLessThanOrEqual(PLAYFIELD.bottom - ENTITY_RADIUS);
+        },
+      ),
+    );
   });
 
   it("isDir / dirFromAxes", () => {
