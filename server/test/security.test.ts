@@ -214,10 +214,20 @@ describe(`fuzzing des messages réseau (seed ${FUZZ_SEED})`, () => {
 });
 
 describe("budget réseau", () => {
+  /** Ce que chaque mode synchronise pendant une manche. */
+  const BUDGET_CASES = [
+    { modeId: "race", entityCount: RACE.entityCount, crosshairs: true, light: false },
+    { modeId: "assassins", entityCount: ASSASSINS.entityCount, crosshairs: false, light: true },
+  ] as const satisfies readonly { modeId: ModeId; entityCount: number; crosshairs: boolean; light: boolean }[];
+
+  it("tous les modes ont un budget réseau", () => {
+    expect(BUDGET_CASES.map((c) => c.modeId).sort()).toEqual(Object.keys(MODES).sort());
+  });
+
   /** État d'une manche pleine : toutes les entités, le maximum de joueurs. */
-  function fullState() {
+  function fullState({ entityCount, crosshairs, light }: (typeof BUDGET_CASES)[number]) {
     const state = new GameState();
-    for (let i = 0; i < RACE.entityCount; i++) {
+    for (let i = 0; i < entityCount; i++) {
       const e = new Entity();
       e.x = 60 + i;
       e.y = 30 * i;
@@ -228,31 +238,43 @@ describe("budget réseau", () => {
       p.name = "x".repeat(NAME_MAX_LENGTH);
       p.color = i;
       state.players.set(`session${i}`, p);
+      if (!crosshairs) continue;
       const c = new Crosshair();
       c.color = i;
       state.crosshairs.set(`c${i.toString(36).padStart(7, "0")}`, c);
     }
+    if (light) {
+      state.light.radius = ASSASSINS.light.radius;
+      state.timeLeft = ASSASSINS.roundSeconds;
+    }
     return state;
   }
 
-  it("l'état complet et un patch de tick restent petits", () => {
-    const state = fullState();
+  it.each(BUDGET_CASES)("$modeId : l'état complet et un patch de tick restent petits", (mode) => {
+    const state = fullState(mode);
     const encoder = new Encoder(state);
     const full = encoder.encodeAll().byteLength;
     encoder.discardChanges();
 
-    // Tick typique : tout le monde bouge, tous les viseurs aussi.
+    // Tick chargé : tout le monde bouge et change de direction, les viseurs, la lumière
+    // et le minuteur aussi (le pire cas, pas le cas moyen).
     state.entities.forEach((e) => {
       e.x += 3.5;
       e.y += 1.25;
+      e.dir = (e.dir + 2) % 8;
     });
     state.crosshairs.forEach((c) => {
       c.x += 10;
       c.y += 10;
     });
+    if (mode.light) {
+      state.light.x += 2.75;
+      state.light.y += 1.5;
+      state.timeLeft -= 1;
+    }
     const patch = encoder.encode().byteLength;
 
-    console.log(`budget réseau : état complet ${full} o, patch de tick ${patch} o (${patch * TICK_RATE} o/s)`);
+    console.log(`budget réseau (${mode.modeId}) : état complet ${full} o, patch de tick ${patch} o (${patch * TICK_RATE} o/s)`);
     expect(full).toBeLessThan(1500);
     expect(patch).toBeLessThan(500);
   });

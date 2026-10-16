@@ -35,7 +35,7 @@ function pointer(overrides: Record<string, unknown> = {}) {
 }
 
 /** Fausse scène : clavier dont les touches sont des { isDown } pilotables, souris, manettes. */
-function fakeScene(gamepads?: unknown[]) {
+function fakeScene(gamepads?: unknown[], displayScale = 1) {
   const keys: Record<string, { isDown: boolean }> = {};
   const keyboard = Object.assign(emitter(), {
     addKeys: (codes: Record<string, number>) => {
@@ -47,7 +47,9 @@ function fakeScene(gamepads?: unknown[]) {
     keyboard,
     gamepad: gamepads ? { total: gamepads.length, gamepads } : undefined,
   });
-  return { scene: { input } as never, keys, keyboard, input };
+  // displayScale : px d'arène par px d'écran (Scale.FIT), comme Phaser.
+  const scale = { displayScale: { x: displayScale, y: displayScale } };
+  return { scene: { input, scale } as never, keys, keyboard, input };
 }
 
 describe("KeyboardMouseSource", () => {
@@ -199,6 +201,24 @@ describe("TouchSource", () => {
     expect(source.read().move).toEqual({ x: 1, y: 0 });
     input.emit("pointerup", pointer({ wasTouch: true }));
     expect(source.read().move).toEqual({ x: 0, y: 0 });
+  });
+
+  it.each([0.5, 1, 2])("le même geste à l'écran donne le même effet, quelle que soit l'échelle (%s)", (displayScale) => {
+    const { scene, input } = fakeScene(undefined, displayScale);
+    const source = new TouchSource(scene);
+    // Le doigt se déplace en px d'écran ; Phaser le convertit en px d'arène.
+    const at = (cssX: number, cssY: number) => pointer({ wasTouch: true, worldX: cssX * displayScale, worldY: cssY * displayScale });
+
+    input.emit("pointerdown", at(100, 100));
+    input.emit("pointermove", at(108, 100)); // 8 px écran : zone morte
+    expect(source.read().move).toEqual({ x: 0, y: 0 });
+    input.emit("pointermove", at(125, 100)); // 25 px écran : mi-course
+    const move = source.read().move!;
+    expect(move.x).toBeCloseTo(0.5);
+    expect(move.y).toBe(0);
+    input.emit("pointermove", at(135, 100)); // 10 px écran de glisser en plus
+    const aim = source.read().aimDelta!;
+    expect(aim.x).toBeCloseTo(20); // gain de visée constant en px d'arène par px d'écran
   });
 
   it("Couteau : une action par appui", () => {
