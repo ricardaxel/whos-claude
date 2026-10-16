@@ -1,39 +1,51 @@
 import Phaser from "phaser";
 import { Client, getStateCallbacks, Room } from "colyseus.js";
 import {
-  ARENA, AssignMessage, Dir, ENTITY_RADIUS, IDLE, InputMessage, MSG, Phase, RACE,
-  RevealMessage, ROOM_NAME, SERVER_PORT,
+  ARENA, AssignMessage, CROSSHAIR_COLORS, Dir, FireMessage, ENTITY_RADIUS, IDLE, InputMessage, MSG, Phase, RACE,
+  RevealMessage, ROOM_NAME, SERVER_PORT, ShotMessage, TICK_RATE,
 } from "@whosclaude/shared";
+import { InputManager } from "./input/InputManager";
+import { GamepadSource } from "./input/GamepadSource";
+import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
+import { TouchSource } from "./input/TouchSource";
+import type { InputFrame } from "./input/types";
 
 /** Vitesse de convergence de l'interpolation (plus haut = plus réactif). */
 const SMOOTHING = 12;
 const REVEAL_ON_ASSIGN_MS = 2000;
+const SEND_INTERVAL_MS = 1000 / TICK_RATE;
 const FORWARD: Dir = 0;
+const CROSSHAIR_RADIUS = 14;
 
 const HUD_TEXT: Record<Phase, string> = {
-  lobby: "Entrée pour lancer la course · Maj pour te repérer",
+  lobby: "Entrée / Start pour lancer · Maj pour te repérer",
   countdown: "Prépare-toi…",
-  racing: "Maintiens Espace ou → pour avancer · Ne te fais pas repérer !",
+  racing: "Avance (Espace, RT) · Vise et tire (clic, RB) · Une seule balle !",
   finished: "",
 };
 
-interface View {
-  body: Phaser.GameObjects.Arc;
+interface View<T extends Phaser.GameObjects.GameObject> {
+  object: T;
   targetX: number;
   targetY: number;
 }
 
 export class GameScene extends Phaser.Scene {
   private room?: Room;
-  private views = new Map<string, View>();
+  private inputs!: InputManager;
+  private entities = new Map<string, View<Phaser.GameObjects.Arc>>();
+  private crosshairs = new Map<string, View<Phaser.GameObjects.Graphics>>();
   private myEntityId?: string;
+  private myCrosshairId?: string;
+  private aimSynced = false;
   private revealUntil = 0;
-  private lastSentDir: Dir = IDLE;
+  private lastSent = { dir: IDLE as Dir, x: 0, y: 0, at: 0 };
 
-  private keys!: Record<"advance" | "right" | "d" | "start" | "reveal", Phaser.Input.Keyboard.Key>;
   private marker!: Phaser.GameObjects.Arc;
+  private aimGhost!: Phaser.GameObjects.Arc;
   private status!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
+  private toast!: Phaser.GameObjects.Text;
   private revealRings: Phaser.GameObjects.Arc[] = [];
 
   constructor() {
@@ -41,21 +53,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   async create() {
-    const K = Phaser.Input.Keyboard.KeyCodes;
-    this.keys = this.input.keyboard!.addKeys({
-      advance: K.SPACE, right: K.RIGHT, d: K.D, start: K.ENTER, reveal: K.SHIFT,
-    }) as typeof this.keys;
+    this.inputs = new InputManager([new KeyboardMouseSource(this), new GamepadSource(this), new TouchSource(this)]);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.inputs.destroy());
+    this.input.setDefaultCursor("none");
 
     this.drawTrack();
     this.marker = this.add.circle(0, 0, ENTITY_RADIUS + 6).setStrokeStyle(3, 0xffd34d).setVisible(false).setDepth(10);
-    this.status = this.add.text(12, 10, "Connexion…", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(20);
+    this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(26);
+    this.status = this.add.text(12, 10, "Connexion…", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(40);
+    this.toast = this.add
+      .text(ARENA.width / 2, 40, "", { fontFamily: "sans-serif", fontSize: "22px", fontStyle: "bold", color: "#ffffff", stroke: "#000000", strokeThickness: 4 })
+      .setOrigin(0.5)
+      .setDepth(40);
     this.banner = this.add
       .text(ARENA.width / 2, ARENA.height / 2, "", {
         fontFamily: "sans-serif", fontSize: "56px", fontStyle: "bold", color: "#ffffff",
         stroke: "#000000", strokeThickness: 6, align: "center",
       })
       .setOrigin(0.5)
-      .setDepth(30);
+      .setDepth(40);
 
     try {
       const client = new Client(`ws://${location.hostname}:${SERVER_PORT}`);
@@ -87,18 +103,39 @@ export class GameScene extends Phaser.Scene {
     const $ = getStateCallbacks(room);
 
     $(room.state).entities.onAdd((entity: any, id: string) => {
-      const body = this.add.circle(entity.x, entity.y, ENTITY_RADIUS, 0xd9c8a9).setStrokeStyle(2, 0x3b2f22);
-      const view: View = { body, targetX: entity.x, targetY: entity.y };
-      this.views.set(id, view);
+      const body = this.add.circle(entity.x, entity.y, ENTITY_RADIUS, 0xd9c8a9).setStrokeStyle(2, 0x3b2f22).setDepth(5);
+      const view = { object: body, targetX: entity.x, targetY: entity.y };
+      this.entities.set(id, view);
       $(entity).onChange(() => {
         view.targetX = entity.x;
         view.targetY = entity.y;
       });
+      $(entity).listen("alive", (alive: boolean) => {
+        // Un mort de PNJ ressemble exactement à un mort de joueur.
+        if (!alive) body.setFillStyle(0x6b6b6b).setStrokeStyle(2, 0x2a2a2a).setAlpha(0.75).setDepth(1);
+      });
     });
 
     $(room.state).entities.onRemove((_entity: any, id: string) => {
-      this.views.get(id)?.body.destroy();
-      this.views.delete(id);
+      this.entities.get(id)?.object.destroy();
+      this.entities.delete(id);
+    });
+
+    $(room.state).crosshairs.onAdd((crosshair: any, id: string) => {
+      const graphics = this.add.graphics().setPosition(crosshair.x, crosshair.y).setDepth(25);
+      const view = { object: graphics, targetX: crosshair.x, targetY: crosshair.y };
+      this.crosshairs.set(id, view);
+      $(crosshair).onChange(() => {
+        view.targetX = crosshair.x;
+        view.targetY = crosshair.y;
+        drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
+      });
+      drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
+    });
+
+    $(room.state).crosshairs.onRemove((_crosshair: any, id: string) => {
+      this.crosshairs.get(id)?.object.destroy();
+      this.crosshairs.delete(id);
     });
 
     $(room.state).listen("phase", (phase: Phase) => this.onPhase(phase));
@@ -106,15 +143,19 @@ export class GameScene extends Phaser.Scene {
 
     room.onMessage(MSG.assign, (message: AssignMessage) => {
       this.myEntityId = message.entityId;
+      this.myCrosshairId = message.crosshairId;
+      this.aimSynced = false;
       this.revealUntil = this.time.now + REVEAL_ON_ASSIGN_MS;
     });
 
+    room.onMessage(MSG.shot, (message: ShotMessage) => this.showShot(message));
     room.onMessage(MSG.reveal, (message: RevealMessage) => this.showResults(message));
 
     room.onLeave(() => this.status.setText("Déconnecté du serveur."));
   }
 
   private onPhase(phase: Phase) {
+    document.body.dataset.phase = phase;
     this.status.setText(HUD_TEXT[phase]);
     if (phase === "lobby") this.clearResults();
     this.refreshBanner();
@@ -124,21 +165,28 @@ export class GameScene extends Phaser.Scene {
     const state = this.room?.state;
     if (!state) return;
     if (state.phase === "countdown") this.banner.setText(String(state.countdown));
-    else if (state.phase === "racing") this.flashBanner("Partez !");
+    else if (state.phase === "racing") this.flash(this.banner, "Partez !");
     else if (state.phase === "lobby") this.banner.setText("");
   }
 
-  private flashBanner(text: string) {
-    this.banner.setText(text);
-    this.time.delayedCall(800, () => {
-      if (this.banner.text === text) this.banner.setText("");
+  private flash(text: Phaser.GameObjects.Text, content: string, ms = 800) {
+    text.setText(content);
+    this.time.delayedCall(ms, () => {
+      if (text.text === content) text.setText("");
     });
+  }
+
+  private showShot({ x, y, victim }: ShotMessage) {
+    const burst = this.add.circle(x, y, 6, 0xffffff, 0.9).setDepth(30);
+    this.tweens.add({ targets: burst, radius: 28, alpha: 0, duration: 350, onComplete: () => burst.destroy() });
+    const message = victim === "player" ? "Un joueur est éliminé !" : victim === "npc" ? "Raté : c'était un PNJ" : "Tir dans le vide";
+    this.flash(this.toast, message, 1800);
   }
 
   private showResults({ winnerEntityId, playerEntityIds }: RevealMessage) {
     // Fin de manche : on révèle tous les joueurs, le gagnant en doré.
     for (const id of playerEntityIds) {
-      const view = this.views.get(id);
+      const view = this.entities.get(id);
       if (!view) continue;
       const isWinner = id === winnerEntityId;
       const ring = this.add
@@ -147,7 +195,8 @@ export class GameScene extends Phaser.Scene {
         .setDepth(15);
       this.revealRings.push(ring);
     }
-    this.banner.setText(winnerEntityId === this.myEntityId ? "Victoire !" : "Un autre joueur\na gagné !");
+    const text = winnerEntityId === null ? "Personne\nne gagne" : winnerEntityId === this.myEntityId ? "Victoire !" : "Un autre joueur\na gagné !";
+    this.banner.setText(text);
   }
 
   private clearResults() {
@@ -156,36 +205,69 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number) {
-    // Même interpolation pour toutes les entités, y compris la nôtre :
+    // Même interpolation pour tout le monde, y compris nous :
     // pas de prédiction locale, sinon notre perso réagirait plus vite que les autres.
     const alpha = 1 - Math.exp(-SMOOTHING * (deltaMs / 1000));
-    for (const view of this.views.values()) {
-      view.body.x += (view.targetX - view.body.x) * alpha;
-      view.body.y += (view.targetY - view.body.y) * alpha;
+    for (const views of [this.entities, this.crosshairs]) {
+      for (const view of views.values()) {
+        view.object.x += (view.targetX - view.object.x) * alpha;
+        view.object.y += (view.targetY - view.object.y) * alpha;
+      }
     }
 
-    this.handleKeys();
-    this.updateMarker(time);
+    this.syncAimWithCrosshair();
+    const frame = this.inputs.read(deltaMs / 1000);
+    this.sendInputs(frame, time);
+    this.updateMarker(time, frame);
   }
 
-  private handleKeys() {
-    if (!this.room) return;
-    if (Phaser.Input.Keyboard.JustDown(this.keys.start) && this.room.state.phase === "lobby") {
-      this.room.send(MSG.start);
+  /** En début de manche, la visée repart de la position réelle de notre viseur. */
+  private syncAimWithCrosshair() {
+    if (this.aimSynced || !this.myCrosshairId) return;
+    const crosshair = this.crosshairs.get(this.myCrosshairId);
+    if (!crosshair) return;
+    this.inputs.setAim(crosshair.targetX, crosshair.targetY);
+    this.aimSynced = true;
+  }
+
+  private sendInputs(frame: InputFrame, time: number) {
+    const room = this.room;
+    if (!room) return;
+    if (frame.start && room.state.phase === "lobby") room.send(MSG.start);
+    if (frame.fire) {
+      const fire: FireMessage = { aimX: frame.aim.x, aimY: frame.aim.y };
+      room.send(MSG.fire, fire);
     }
 
-    const k = this.keys;
-    const dir: Dir = k.advance.isDown || k.right.isDown || k.d.isDown ? FORWARD : IDLE;
-    if (dir === this.lastSentDir) return;
-    this.lastSentDir = dir;
-    const message: InputMessage = { dir };
-    this.room.send(MSG.input, message);
+    const dir: Dir = frame.advance ? FORWARD : IDLE;
+    const aimMoved = frame.aim.x !== this.lastSent.x || frame.aim.y !== this.lastSent.y;
+    const dirChanged = dir !== this.lastSent.dir;
+    if (!dirChanged && !(aimMoved && time - this.lastSent.at >= SEND_INTERVAL_MS)) return;
+
+    const message: InputMessage = { dir, aimX: frame.aim.x, aimY: frame.aim.y };
+    room.send(MSG.input, message);
+    this.lastSent = { dir, x: frame.aim.x, y: frame.aim.y, at: time };
   }
 
-  private updateMarker(time: number) {
-    const mine = this.myEntityId ? this.views.get(this.myEntityId) : undefined;
-    const visible = !!mine && (this.keys.reveal.isDown || time < this.revealUntil);
+  private updateMarker(time: number, frame: InputFrame) {
+    const mine = this.myEntityId ? this.entities.get(this.myEntityId) : undefined;
+    const visible = !!mine && (frame.reveal || time < this.revealUntil);
     this.marker.setVisible(visible);
-    if (visible && mine) this.marker.setPosition(mine.body.x, mine.body.y);
+    if (visible && mine) this.marker.setPosition(mine.object.x, mine.object.y);
+
+    // Point de visée local : la cible vers laquelle notre viseur se dirige.
+    const hasCrosshair = !!this.myCrosshairId && this.crosshairs.has(this.myCrosshairId);
+    this.aimGhost.setVisible(hasCrosshair).setPosition(frame.aim.x, frame.aim.y);
   }
+}
+
+function drawCrosshair(g: Phaser.GameObjects.Graphics, color: number, loaded: boolean) {
+  const r = CROSSHAIR_RADIUS;
+  g.clear();
+  g.lineStyle(2.5, color, 1).strokeCircle(0, 0, r);
+  g.lineBetween(-r - 5, 0, -r + 5, 0).lineBetween(r - 5, 0, r + 5, 0);
+  g.lineBetween(0, -r - 5, 0, -r + 5).lineBetween(0, r - 5, 0, r + 5);
+  // Point plein = balle disponible ; vide = déjà tiré.
+  if (loaded) g.fillStyle(color, 1).fillCircle(0, 0, 3);
+  else g.lineStyle(1.5, color, 0.8).strokeCircle(0, 0, 3);
 }

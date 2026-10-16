@@ -59,27 +59,66 @@ export const RACE = {
   finishX: 900,
 } as const;
 
-// --- Messages réseau ---
+// --- Viseurs ---
 
-/** Client → serveur : direction voulue (le mode décide comment l'interpréter). */
-export interface InputMessage {
-  dir: Dir;
+export const AIM = {
+  /** Vitesse max d'un viseur côté serveur (px/s) : la souris ne téléporte pas. */
+  speed: 700,
+  /** Distance max entre le centre du viseur et un personnage pour le toucher. */
+  hitRadius: ENTITY_RADIUS + 4,
+} as const;
+
+/** Une couleur par viseur, attribuée dans l'ordre d'arrivée des joueurs. */
+export const CROSSHAIR_COLORS = [0xff5a5a, 0x4dabff, 0x5ad16a, 0xffb23d, 0xc77dff, 0x3de0d0, 0xff7ac8, 0xf2f2f2] as const;
+
+export function clampToArena(x: number, y: number) {
+  return { x: clamp(x, 0, ARENA.width), y: clamp(y, 0, ARENA.height) };
 }
 
-/** Serveur → un seul client : l'entité qu'il contrôle. Jamais diffusé aux autres. */
+// --- Messages réseau ---
+
+/** Client → serveur : intentions continues du joueur. */
+export interface InputMessage {
+  /** Direction voulue (le mode décide comment l'interpréter). */
+  dir: Dir;
+  /** Point visé, en coordonnées de l'arène. */
+  aimX: number;
+  aimY: number;
+}
+
+/**
+ * Client → serveur : tirer sur ce point. La visée se verrouille et le coup part
+ * quand le viseur l'atteint (sa vitesse reste plafonnée).
+ */
+export interface FireMessage {
+  aimX: number;
+  aimY: number;
+}
+
+/** Serveur → un seul client : ce qu'il contrôle. Jamais diffusé aux autres. */
 export interface AssignMessage {
   entityId: string;
+  crosshairId: string;
+}
+
+/** Serveur → tous : un tir a eu lieu. */
+export interface ShotMessage {
+  x: number;
+  y: number;
+  victim: "player" | "npc" | null;
 }
 
 /** Serveur → tous, en fin de manche uniquement : qui était joueur, et qui a gagné. */
 export interface RevealMessage {
-  winnerEntityId: string;
+  winnerEntityId: string | null;
   playerEntityIds: string[];
 }
 
 export const MSG = {
   input: "input",
+  fire: "fire",
   start: "start",
   assign: "assign",
+  shot: "shot",
   reveal: "reveal",
 } as const;

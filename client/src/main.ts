@@ -9,5 +9,6 @@ new Phaser.Game({
   height: ARENA.height,
   backgroundColor: "#2b3a2f",
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  input: { gamepad: true, activePointers: 2 },
   scene: [GameScene],
 });
