@@ -1,11 +1,12 @@
 import Phaser from "phaser";
 import { getStateCallbacks } from "colyseus.js";
 import {
-  AimMessage, ARENA, AssignMessage, CROSSHAIR_COLORS, Dir, FireMessage, ENTITY_RADIUS, IDLE, MoveMessage, MSG, Phase, RACE,
-  RevealMessage, ShotMessage, TICK_RATE,
+  ARENA, AssignMessage, CROSSHAIR_COLORS, ENTITY_RADIUS, MSG, Phase, RACE,
+  RevealMessage, ShotMessage,
 } from "@whosclaude/shared";
 import type { GameRoom } from "./net";
 import { InputManager } from "./input/InputManager";
+import { InputSender } from "./input/InputSender";
 import { GamepadSource } from "./input/GamepadSource";
 import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
 import { TouchSource } from "./input/TouchSource";
@@ -14,8 +15,6 @@ import type { InputFrame } from "./input/types";
 /** Vitesse de convergence de l'interpolation (plus haut = plus réactif). */
 const SMOOTHING = 12;
 const REVEAL_ON_ASSIGN_MS = 2000;
-const SEND_INTERVAL_MS = 1000 / TICK_RATE;
-const FORWARD: Dir = 0;
 const CROSSHAIR_RADIUS = 14;
 
 const HUD_HINT: Partial<Record<Phase, string>> = {
@@ -49,7 +48,7 @@ export class GameScene extends Phaser.Scene {
   private myCrosshairId?: string;
   private aimSynced = false;
   private revealUntil = 0;
-  private lastSent = { dir: IDLE as Dir, x: 0, y: 0, aimAt: 0 };
+  private sender = new InputSender();
 
   private marker!: Phaser.GameObjects.Arc;
   private aimGhost!: Phaser.GameObjects.Arc;
@@ -76,6 +75,7 @@ export class GameScene extends Phaser.Scene {
     this.room = undefined;
     this.hooks = undefined;
     this.myEntityId = this.myCrosshairId = undefined;
+    this.sender.reset();
     if (this.created) {
       this.banner.setText("");
       this.toast.setText("");
@@ -170,6 +170,8 @@ export class GameScene extends Phaser.Scene {
       this.myEntityId = message.entityId;
       this.myCrosshairId = message.crosshairId;
       this.aimSynced = false;
+      // Nouvelle manche : le serveur repart d'une entité immobile, l'envoi aussi.
+      this.sender.reset();
       this.revealUntil = this.time.now + REVEAL_ON_ASSIGN_MS;
     });
 
@@ -270,28 +272,8 @@ export class GameScene extends Phaser.Scene {
     if (!room) return;
     // Entrée / Start servent à se déclarer prêt dans le salon (utile à la manette).
     if (frame.start && phase === "lobby") this.hooks?.toggleReady();
-    if (phase !== "countdown" && phase !== "playing") return;
 
-    if (frame.fire) {
-      const fire: FireMessage = { aimX: frame.aim.x, aimY: frame.aim.y };
-      room.send(MSG.fire, fire);
-    }
-
-    // Direction : envoyée tout de suite, seule. Visée : sur sa propre cadence, jamais
-    // déclenchée par un changement de direction (voir MoveMessage / AimMessage).
-    const dir: Dir = frame.advance ? FORWARD : IDLE;
-    if (dir !== this.lastSent.dir) {
-      const move: MoveMessage = { dir };
-      room.send(MSG.move, move);
-      this.lastSent.dir = dir;
-    }
-
-    const aimMoved = frame.aim.x !== this.lastSent.x || frame.aim.y !== this.lastSent.y;
-    if (aimMoved && time - this.lastSent.aimAt >= SEND_INTERVAL_MS) {
-      const aim: AimMessage = { aimX: frame.aim.x, aimY: frame.aim.y };
-      room.send(MSG.aim, aim);
-      this.lastSent = { ...this.lastSent, x: frame.aim.x, y: frame.aim.y, aimAt: time };
-    }
+    for (const { type, message } of this.sender.update(frame, phase, time)) room.send(type, message);
   }
 
   private updateMarker(time: number, frame: InputFrame) {
