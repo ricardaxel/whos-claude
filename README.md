@@ -59,6 +59,7 @@ reproduit le même routage `/colyseus` sur `http://localhost:4173`.
   transmet l'IP du joueur au serveur (`X-Real-IP`).
 - Le serveur plafonne les parties ouvertes : 200 au total, 3 créées par adresse IP
   (`server/src/limits.ts`). Rejoindre une partie n'est pas limité.
+- Police (DotGothic16, licence OFL) hébergée avec le jeu : aucune requête vers Google.
 - Mémoire plafonnée par conteneur et logs en rotation (`docker-compose.yml`).
 
 ### Logs

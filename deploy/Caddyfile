@@ -13,7 +13,7 @@ header {
 	Permissions-Policy "camera=(), microphone=(), geolocation=()"
 	# Le jeu ne charge que ses propres fichiers (et la police Google Fonts) ; les WebSockets
 	# vont vers la même origine. « unsafe-inline » pour les styles : la page en contient.
-	Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+	Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 	-Server
 }
 
