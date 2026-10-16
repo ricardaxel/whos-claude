@@ -1,5 +1,6 @@
 import { ROOM_CODE, sanitizeName } from "@whosclaude/shared";
 import { byId, storage } from "./dom";
+import { enterFullscreenOnTouch } from "./fullscreen";
 
 const NAME_KEY = "whosclaude.name";
 
@@ -48,6 +49,8 @@ export class HomeScreen {
   }
 
   private async submit(action: () => Promise<void>) {
+    // Pendant le clic, avant toute attente : le navigateur n'accepte le plein écran que là.
+    enterFullscreenOnTouch();
     this.error.textContent = "";
     this.setBusy(true);
     try {

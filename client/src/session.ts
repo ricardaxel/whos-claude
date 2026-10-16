@@ -3,6 +3,7 @@ import type { Phase } from "@whosclaude/shared";
 import { createRoom, GameRoom, joinRoom } from "./net";
 import type { GameScene } from "./GameScene";
 import { showScreen, type Screen } from "./ui/dom";
+import { setupFullscreen } from "./ui/fullscreen";
 import { HomeScreen } from "./ui/HomeScreen";
 import { LobbyScreen } from "./ui/LobbyScreen";
 import { PodiumScreen } from "./ui/PodiumScreen";
@@ -21,6 +22,7 @@ export class Session {
   private podium = new PodiumScreen();
 
   constructor(private readonly scene: GameScene) {
+    setupFullscreen();
     this.home = new HomeScreen({
       create: (name) => this.enter(createRoom({ name })),
       join: (code, name) => this.enter(joinRoom(code, { name })),

@@ -1,0 +1,10 @@
+{
+  "name": "WhosClaude",
+  "short_name": "WhosClaude",
+  "description": "Qui se cache dans la foule ?",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0b090f",
+  "theme_color": "#0b090f"
+}
