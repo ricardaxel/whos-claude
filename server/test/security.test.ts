@@ -24,8 +24,8 @@ describe("anti-fuite : rien ne distingue un joueur d'un PNJ avant la révélatio
     const room = await createRoom(ctx.colyseus);
     const [a, b, spy] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
     await startMatch(room, [a, b, spy]);
-    await send(room, a, MSG.input, { dir: 0, aimX: 300, aimY: 300 });
-    await send(room, b, MSG.input, { dir: 0, aimX: 500, aimY: 200 });
+    await send(room, a, MSG.move, { dir: 0 });
+    await send(room, b, MSG.move, { dir: 0 });
     advance(room, 2);
     await shoot(room, a, b.assigns[0].entityId);
     finishRound(room); // a franchit l'arrivée (2 survivants : le tir seul ne clôt pas la manche)
@@ -61,11 +61,11 @@ describe("anti-fuite : rien ne distingue un joueur d'un PNJ avant la révélatio
     });
 
     await startMatch(room, [a, b, spy]);
-    await send(room, a, MSG.input, { dir: 0, aimX: 100, aimY: 100 });
-    await send(room, b, MSG.input, { dir: 0, aimX: 800, aimY: 500 });
+    await send(room, a, MSG.move, { dir: 0 });
+    await send(room, b, MSG.move, { dir: 0 });
     advance(room, 3);
     await syncState(room, spy);
-    await send(room, a, MSG.input, { dir: -1, aimX: 100, aimY: 100 });
+    await send(room, a, MSG.move, { dir: -1 });
     advance(room, 1);
     await syncState(room, spy);
 
@@ -80,7 +80,7 @@ describe("anti-fuite : rien ne distingue un joueur d'un PNJ avant la révélatio
     await syncState(room, spy);
     expect(room.state.entities.get(npcId)!.alive).toBe(false);
 
-    await send(room, a, MSG.input, { dir: 0, aimX: 100, aimY: 100 });
+    await send(room, a, MSG.move, { dir: 0 });
     finishRound(room);
     await waitFor(() => spy.reveals.length === 1, "révélation");
 

@@ -183,10 +183,22 @@ export interface GameStateShape {
 
 // --- Messages réseau ---
 
-/** Client → serveur : intentions continues du joueur. */
-export interface InputMessage {
+/*
+ * Direction et visée voyagent dans deux messages distincts, envoyés sur des rythmes
+ * indépendants : la direction dès qu'elle change, la visée à cadence fixe.
+ * Un seul message pour les deux ferait bouger le viseur public (relié au pseudo par
+ * sa couleur) dans le même tick que l'entité démarre ou s'arrête : une corrélation
+ * qui permettrait d'identifier le personnage d'un joueur.
+ */
+
+/** Client → serveur, dès que la direction change. */
+export interface MoveMessage {
   /** Direction voulue (le mode décide comment l'interpréter). */
   dir: Dir;
+}
+
+/** Client → serveur, à cadence fixe (au plus une fois par tick), si la visée a changé. */
+export interface AimMessage {
   /** Point visé, en coordonnées de l'arène. */
   aimX: number;
   aimY: number;
@@ -244,7 +256,8 @@ export const MSG = {
   settings: "settings",
   startMatch: "startMatch",
   // Manche
-  input: "input",
+  move: "move",
+  aim: "aim",
   fire: "fire",
   assign: "assign",
   shot: "shot",

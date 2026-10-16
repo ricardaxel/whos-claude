@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { getStateCallbacks } from "colyseus.js";
 import {
-  ARENA, AssignMessage, CROSSHAIR_COLORS, Dir, FireMessage, ENTITY_RADIUS, IDLE, InputMessage, MSG, Phase, RACE,
+  AimMessage, ARENA, AssignMessage, CROSSHAIR_COLORS, Dir, FireMessage, ENTITY_RADIUS, IDLE, MoveMessage, MSG, Phase, RACE,
   RevealMessage, ShotMessage, TICK_RATE,
 } from "@whosclaude/shared";
 import type { GameRoom } from "./net";
@@ -49,7 +49,7 @@ export class GameScene extends Phaser.Scene {
   private myCrosshairId?: string;
   private aimSynced = false;
   private revealUntil = 0;
-  private lastSent = { dir: IDLE as Dir, x: 0, y: 0, at: 0 };
+  private lastSent = { dir: IDLE as Dir, x: 0, y: 0, aimAt: 0 };
 
   private marker!: Phaser.GameObjects.Arc;
   private aimGhost!: Phaser.GameObjects.Arc;
@@ -277,14 +277,21 @@ export class GameScene extends Phaser.Scene {
       room.send(MSG.fire, fire);
     }
 
+    // Direction : envoyée tout de suite, seule. Visée : sur sa propre cadence, jamais
+    // déclenchée par un changement de direction (voir MoveMessage / AimMessage).
     const dir: Dir = frame.advance ? FORWARD : IDLE;
-    const aimMoved = frame.aim.x !== this.lastSent.x || frame.aim.y !== this.lastSent.y;
-    const dirChanged = dir !== this.lastSent.dir;
-    if (!dirChanged && !(aimMoved && time - this.lastSent.at >= SEND_INTERVAL_MS)) return;
+    if (dir !== this.lastSent.dir) {
+      const move: MoveMessage = { dir };
+      room.send(MSG.move, move);
+      this.lastSent.dir = dir;
+    }
 
-    const message: InputMessage = { dir, aimX: frame.aim.x, aimY: frame.aim.y };
-    room.send(MSG.input, message);
-    this.lastSent = { dir, x: frame.aim.x, y: frame.aim.y, at: time };
+    const aimMoved = frame.aim.x !== this.lastSent.x || frame.aim.y !== this.lastSent.y;
+    if (aimMoved && time - this.lastSent.aimAt >= SEND_INTERVAL_MS) {
+      const aim: AimMessage = { aimX: frame.aim.x, aimY: frame.aim.y };
+      room.send(MSG.aim, aim);
+      this.lastSent = { ...this.lastSent, x: frame.aim.x, y: frame.aim.y, aimAt: time };
+    }
   }
 
   private updateMarker(time: number, frame: InputFrame) {

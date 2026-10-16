@@ -4,7 +4,7 @@ import { ARENA, MSG, type Phase } from "@whosclaude/shared";
 import type { GameRoom } from "../src/GameRoom.js";
 import { advance, checkInvariants, internals, send, waitFor, type Player } from "./helpers.js";
 
-const MESSAGE_TYPES = [MSG.input, MSG.fire, MSG.settings, MSG.ready, MSG.startMatch, "inconnu"];
+const MESSAGE_TYPES = [MSG.move, MSG.aim, MSG.fire, MSG.settings, MSG.ready, MSG.startMatch, "inconnu"];
 
 /** Charges utiles : du n'importe quoi, mais aussi des messages plausibles pour atteindre la manche. */
 const payloadArb = fc.oneof(
@@ -96,7 +96,7 @@ export async function runCommands(room: GameRoom, players: Player[], commands: C
         await send(room, players[command.from], MSG.startMatch);
         break;
       case "run":
-        await send(room, players[command.from], MSG.input, { dir: command.forward ? 0 : -1, aimX: 480, aimY: 320 });
+        await send(room, players[command.from], MSG.move, { dir: command.forward ? 0 : -1 });
         break;
       case "fireAtPlayer": {
         const victim = internals(room).roundPlayers.get(players[command.victim].sessionId);
@@ -116,7 +116,7 @@ export async function runCommands(room: GameRoom, players: Player[], commands: C
         break;
       case "finish":
         if (room.state.phase !== "playing") break;
-        await send(room, players[command.from], MSG.input, { dir: 0, aimX: 480, aimY: 320 });
+        await send(room, players[command.from], MSG.move, { dir: 0 });
         advance(room, 14);
         break;
       case "leave":

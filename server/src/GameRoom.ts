@@ -1,7 +1,7 @@
 import { Client, Room, ServerError } from "colyseus";
 import {
   AIM, ARENA, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
-  InputMessage, isDir, isModeId, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
+  AimMessage, isDir, isModeId, MoveMessage, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
   RESULTS_SECONDS, RevealMessage, ROUNDS, sanitizeName, SettingsMessage, ShotMessage, step, TICK_RATE,
   CROSSHAIR_COLORS,
 } from "@whosclaude/shared";
@@ -74,13 +74,16 @@ export class GameRoom extends Room<GameState> {
       this.startMatch();
     });
 
-    this.onMessage(MSG.input, (client, message: InputMessage) => {
+    this.onMessage(MSG.move, (client, message: MoveMessage) => {
       const player = this.roundPlayers.get(client.sessionId);
-      if (!player || !message) return;
-      if (!player.firing) this.setAim(player, message.aimX, message.aimY);
-      if (player.alive && isDir(message.dir)) {
+      if (player?.alive && isDir(message?.dir)) {
         this.controllers.get(player.entityId)!.input = this.mode.mapInput(message.dir);
       }
+    });
+
+    this.onMessage(MSG.aim, (client, message: AimMessage) => {
+      const player = this.roundPlayers.get(client.sessionId);
+      if (player && !player.firing) this.setAim(player, message?.aimX, message?.aimY);
     });
 
     this.onMessage(MSG.fire, (client, message: FireMessage) => {

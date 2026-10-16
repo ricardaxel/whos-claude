@@ -142,6 +142,30 @@ describe("manche", () => {
     expect(new Set(entityIds).size).toBe(players.length);
   });
 
+  it("direction et visée sont indépendantes (pas de corrélation viseur ↔ entité)", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const a = await join(ctx.colyseus, room);
+    await startMatch(room, [a]);
+    const entity = room.state.entities.get(a.assigns[0].entityId)!;
+    const crosshair = room.state.crosshairs.get(a.assigns[0].crosshairId)!;
+    const aimBefore = { ...internals(room).roundPlayers.get(a.sessionId)! };
+
+    // Un move, même accompagné de champs de visée, ne touche pas au viseur.
+    await send(room, a, MSG.move, { dir: 0, aimX: 10, aimY: 10 });
+    advance(room, 0.5);
+    expect(entity.x).toBeGreaterThan(RACE.startX);
+    expect(internals(room).roundPlayers.get(a.sessionId)).toMatchObject({ aimX: aimBefore.aimX, aimY: aimBefore.aimY });
+    expect({ x: crosshair.x, y: crosshair.y }).toEqual({ x: aimBefore.aimX, y: aimBefore.aimY });
+
+    // Un aim, même accompagné d'une direction, ne touche pas au personnage.
+    await send(room, a, MSG.move, { dir: -1 });
+    const xStopped = entity.x;
+    await send(room, a, MSG.aim, { aimX: 100, aimY: 100, dir: 0 });
+    advance(room, 1);
+    expect(entity.x).toBe(xStopped);
+    expect({ x: crosshair.x, y: crosshair.y }).toEqual({ x: 100, y: 100 });
+  });
+
   it("une seule balle, et on ne peut pas se tirer dessus", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
@@ -203,7 +227,7 @@ describe("manche", () => {
     const room = await createRoom(ctx.colyseus);
     const a = await join(ctx.colyseus, room);
     await startMatch(room, [a]);
-    await send(room, a, MSG.input, { dir: 0, aimX: 0, aimY: 0 });
+    await send(room, a, MSG.move, { dir: 0 });
     advanceUntil(room, "roundEnd", 20);
     expect(room.state.entities.get(a.assigns[0].entityId)!.x).toBeGreaterThanOrEqual(RACE.finishX);
     expect(room.state.players.get(a.sessionId)!.score).toBe(1);
