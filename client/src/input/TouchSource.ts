@@ -1,12 +1,14 @@
 import Phaser from "phaser";
 import type { InputSource, SourceFrame } from "./types";
 
-/** Amplification du glisser : un petit mouvement de doigt déplace le viseur plus loin. */
-const DRAG_GAIN = 1.6;
-/** Joystick virtuel : décalage du doigt (px d'arène) qui correspond à « à fond ». */
-const STICK_RANGE = 40;
-/** En dessous de ce décalage, le joystick est au repos. */
-const STICK_DEADZONE = 8;
+// Réglages en pixels d'ÉCRAN (CSS) : le même geste du pouce donne le même effet
+// quelle que soit la taille d'affichage du jeu (téléphone, tablette).
+/** Visée : px d'arène parcourus par le viseur pour 1 px de glisser à l'écran. */
+const DRAG_GAIN = 2;
+/** Joystick virtuel : décalage du doigt (px écran) qui correspond à « à fond ». */
+const STICK_RANGE = 50;
+/** En dessous de ce décalage (px écran), le joystick est au repos. */
+const STICK_DEADZONE = 10;
 
 /**
  * Téléphone : boutons à l'écran (#touch-controls dans index.html) pour avancer,
@@ -87,8 +89,7 @@ export class TouchSource implements InputSource {
 
   private stickVector() {
     if (!this.stick) return { x: 0, y: 0 };
-    const dx = this.stick.x - this.stick.startX;
-    const dy = this.stick.y - this.stick.startY;
+    const { x: dx, y: dy } = this.toScreen(this.stick.x - this.stick.startX, this.stick.y - this.stick.startY);
     const length = Math.hypot(dx, dy);
     if (length < STICK_DEADZONE) return { x: 0, y: 0 };
     const scale = Math.min(1, length / STICK_RANGE) / length;
@@ -99,8 +100,9 @@ export class TouchSource implements InputSource {
     const last = this.lastDrag.get(pointer.id);
     if (!pointer.wasTouch || !last) return;
     const delta = this.pending.aimDelta ?? { x: 0, y: 0 };
-    delta.x += (pointer.worldX - last.x) * DRAG_GAIN;
-    delta.y += (pointer.worldY - last.y) * DRAG_GAIN;
+    const moved = this.toScreen(pointer.worldX - last.x, pointer.worldY - last.y);
+    delta.x += moved.x * DRAG_GAIN;
+    delta.y += moved.y * DRAG_GAIN;
     this.pending.aimDelta = delta;
     this.lastDrag.set(pointer.id, { x: pointer.worldX, y: pointer.worldY });
     if (this.stick?.id === pointer.id) {
@@ -108,6 +110,12 @@ export class TouchSource implements InputSource {
       this.stick.y = pointer.worldY;
     }
   };
+
+  /** Convertit un écart en px d'arène en px d'écran (displayScale = px d'arène par px écran). */
+  private toScreen(dx: number, dy: number) {
+    const scale = this.scene.scale?.displayScale ?? { x: 1, y: 1 };
+    return { x: dx / scale.x, y: dy / scale.y };
+  }
 
   private onPointerUp = (pointer: Phaser.Input.Pointer) => {
     this.lastDrag.delete(pointer.id);
