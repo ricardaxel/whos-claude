@@ -201,15 +201,13 @@ describe("manche", () => {
     expect(new Set(looks).size).toBeGreaterThan(1); // 20 tirages : jamais tous identiques en pratique
   });
 
-  it("une seule balle, et on ne peut pas se tirer dessus", async () => {
+  it("une seule balle", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
     await startMatch(room, [a, b]);
-    const self = room.state.entities.get(a.assigns[0].entityId)!;
+    const npcId = [...room.state.entities.keys()].find((id) => id !== a.assigns[0].entityId && id !== b.assigns[0].entityId)!;
 
-    await shoot(room, a, a.assigns[0].entityId);
-    expect(self.alive).toBe(true);
-    expect(a.shots.at(-1)!.victim).not.toBe("player");
+    await shoot(room, a, npcId);
     expect(room.state.crosshairs.get(a.assigns[0].crosshairId!)!.loaded).toBe(false);
 
     const other = room.state.entities.get(b.assigns[0].entityId)!;
@@ -217,6 +215,19 @@ describe("manche", () => {
     advance(room, 2);
     expect(other.alive).toBe(true);
     expect(a.shots).toHaveLength(1);
+  });
+
+  it("se tirer dessus tue, comme sur n'importe qui (la balle ne trahit pas le tireur)", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+    await startMatch(room, [a, b]);
+
+    await shoot(room, a, a.assigns[0].entityId);
+    expect(room.state.entities.get(a.assigns[0].entityId)!.alive).toBe(false);
+    expect(a.shots.at(-1)!.victim).toBe("player");
+    expect(room.state.phase).toBe("roundEnd");
+    await waitFor(() => a.reveals.length === 1, "révélation");
+    expect(a.reveals[0].winnerPlayerId).toBe(b.sessionId);
   });
 
   it("tuer le dernier adversaire fait gagner la manche", async () => {

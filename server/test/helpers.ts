@@ -10,6 +10,7 @@ import {
 } from "@whosclaude/shared";
 import { createGameServer } from "../src/app.js";
 import { GameRoom } from "../src/GameRoom.js";
+import { LIMITS } from "../src/limits.js";
 
 /** Port libre choisi par le système : deux suites lancées en parallèle ne se gênent jamais. */
 export async function freePort(): Promise<number> {
@@ -32,6 +33,9 @@ export function useTestServer(configure?: (server: Server) => void) {
   const ctx = { colyseus: undefined as unknown as ColyseusTestServer, port: 0 };
   beforeAll(async () => {
     GameRoom.autoTick = false;
+    // Toutes les connexions de test viennent de 127.0.0.1 : on lève les plafonds anti-abus
+    // (testés à part dans limits.test.ts).
+    LIMITS.maxRooms = LIMITS.maxRoomsPerIp = 10_000;
     const server = createGameServer();
     configure?.(server);
     ctx.port = process.env.TEST_PORT ? Number(process.env.TEST_PORT) : await freePort();

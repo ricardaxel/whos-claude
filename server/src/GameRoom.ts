@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { Client, Room, ServerError } from "colyseus";
+import { type AuthContext, Client, Room, ServerError } from "colyseus";
 import {
   AIM, ARENA, ASSASSINS, type KnifeMessage, LOOK_COUNT, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
-  AimMessage, isDir, isModeId, MoveMessage, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
+  AimMessage, CLOSE_KICKED, isDir, isModeId, type KickMessage, MoveMessage, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
   RESULTS_SECONDS, RevealMessage, ROUNDS, sanitizeName, SettingsMessage, ShotMessage, SPEED, step, TICK_RATE,
   CROSSHAIR_COLORS,
 } from "@whosclaude/shared";
@@ -11,6 +11,9 @@ import type { GameMode, NpcBrain } from "./modes/GameMode.js";
 import { createMode } from "./modes/index.js";
 import { uniqueName } from "./names.js";
 import { releaseRoomCode, reserveRoomCode } from "./roomCodes.js";
+import {
+  clientIp, releaseRoomForIp, reserveRoomForIp, roomCapacityReached, trackRoom, untrackRoom,
+} from "./limits.js";
 
 /** Données côté serveur uniquement : qui contrôle quoi. Jamais synchronisé. */
 interface Controller extends NpcBrain {
@@ -69,12 +72,20 @@ export class GameRoom extends Room<GameState> {
   private roundRemaining = 0;
   /** Joueurs au départ de la manche : un départ ne doit pas priver le dernier restant de sa victoire. */
   private roundStartPlayers = 0;
+  /** IP du créateur de la room (comptée dans sa limite de rooms ouvertes). */
+  private creatorIp?: string;
+  /** Adresses exclues par l'hôte : elles ne peuvent plus revenir dans cette partie. */
+  private bannedIps = new Set<string>();
+  /** Joueurs en cours d'exclusion : leur départ est définitif, sans attente de reconnexion. */
+  private kicked = new Set<string>();
 
   onCreate() {
+    if (roomCapacityReached()) throw new ServerError(503, "Trop de parties en cours, réessaie dans un moment.");
     // Le code de la room sert directement d'identifiant : on rejoint avec joinById(code).
     this.roomId = reserveRoomCode();
     // Privée : invisible du matchmaking, on n'y entre qu'avec le code.
     this.setPrivate(true);
+    trackRoom(this.roomId);
 
     this.onMessage(MSG.ready, (client, message: ReadyMessage) => {
       const info = this.state.players.get(client.sessionId);
@@ -90,6 +101,15 @@ export class GameRoom extends Room<GameState> {
       }
       // Être prêt, c'est accepter ces réglages-là : s'ils changent, chacun doit le redire.
       if (`${this.state.modeId}/${this.state.totalRounds}` !== before) this.state.players.forEach((p) => (p.ready = false));
+    });
+
+    this.onMessage(MSG.kick, (client, message: KickMessage) => {
+      const target = this.clients.find((c) => c.sessionId === message?.playerId);
+      if (!this.isHost(client) || this.state.phase !== "lobby" || !target || target === client) return;
+      const ip = (target.auth as { ip?: string } | undefined)?.ip;
+      if (ip) this.bannedIps.add(ip);
+      this.kicked.add(target.sessionId);
+      target.leave(CLOSE_KICKED);
     });
 
     this.onMessage(MSG.startMatch, (client) => {
@@ -135,10 +155,18 @@ export class GameRoom extends Room<GameState> {
     if (GameRoom.autoTick) this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), 1000 / TICK_RATE);
   }
 
-  onAuth(_client: Client, _options: JoinOptions) {
+  onAuth(_client: Client, _options: JoinOptions, context?: AuthContext) {
     // Pas d'arrivée en plein match : il faudrait apparaître dans l'arène sans se trahir.
     if (this.state.phase !== "lobby") throw new ServerError(403, "Un match est en cours, réessaie à la fin.");
-    return true;
+    const ip = clientIp(context);
+    if (this.bannedIps.has(ip)) throw new ServerError(403, "L'hôte t'a exclu de cette partie.");
+    // Le premier arrivé est le créateur : sa room compte dans la limite de son adresse.
+    if (this.creatorIp === undefined && this.clients.length === 0) {
+      if (!reserveRoomForIp(ip)) throw new ServerError(429, "Trop de parties créées depuis ta connexion. Termine-en une d'abord.");
+      this.creatorIp = ip;
+    }
+    // Conservé dans client.auth : sert à l'exclusion.
+    return { ip };
   }
 
   onJoin(client: Client, options: JoinOptions) {
@@ -154,8 +182,9 @@ export class GameRoom extends Room<GameState> {
   }
 
   async onLeave(client: Client, consented?: boolean) {
-    // Départ involontaire : on garde la place du joueur quelques secondes.
-    if (!consented && (await this.waitForReconnection(client))) return;
+    // Départ involontaire : on garde la place du joueur quelques secondes (sauf exclusion).
+    const kicked = this.kicked.delete(client.sessionId);
+    if (!consented && !kicked && (await this.waitForReconnection(client))) return;
     this.removePlayer(client.sessionId);
   }
 
@@ -216,6 +245,8 @@ export class GameRoom extends Room<GameState> {
 
   onDispose() {
     releaseRoomCode(this.roomId);
+    untrackRoom(this.roomId);
+    if (this.creatorIp !== undefined) releaseRoomForIp(this.creatorIp);
   }
 
   // --- Salon et match ---
@@ -420,10 +451,11 @@ export class GameRoom extends Room<GameState> {
     if (!shooter.alive || !crosshair?.loaded) return;
     crosshair.loaded = false;
 
-    // On touche le personnage vivant le plus proche du centre du viseur (jamais soi-même).
+    // On touche le personnage vivant le plus proche du centre du viseur, y compris soi-même :
+    // une balle qui « traverserait » une seule entité désignerait le tireur à tout le monde.
     const inRange: { id: string; distance: number }[] = [];
     this.state.entities.forEach((entity, id) => {
-      if (!entity.alive || id === shooter.entityId) return;
+      if (!entity.alive) return;
       const distance = Math.hypot(entity.x - crosshair.x, entity.y - crosshair.y);
       if (distance <= AIM.hitRadius) inRange.push({ id, distance });
     });

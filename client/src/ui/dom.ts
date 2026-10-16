@@ -16,8 +16,13 @@ export function colorToCss(color: number) {
   return `#${color.toString(16).padStart(6, "0")}`;
 }
 
-/** Ligne de liste de joueurs : pastille de couleur, nom, puis badges. */
-export function playerRow(color: number, name: string, badges: { text: string; ok?: boolean }[]) {
+/** Ligne de liste de joueurs : pastille de couleur, nom, badges, puis éventuelles commandes. */
+export function playerRow(
+  color: number,
+  name: string,
+  badges: { text: string; ok?: boolean }[],
+  actions: HTMLElement[] = [],
+) {
   const li = document.createElement("li");
   const dot = document.createElement("span");
   dot.className = "dot";
@@ -32,6 +37,7 @@ export function playerRow(color: number, name: string, badges: { text: string; o
     span.textContent = badge.text;
     li.append(span);
   }
+  li.append(...actions);
   return li;
 }
 

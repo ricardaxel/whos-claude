@@ -5,9 +5,29 @@
 
 encode zstd gzip
 
+# En-têtes de sécurité, sur toutes les réponses.
+header {
+	X-Content-Type-Options "nosniff"
+	X-Frame-Options "DENY"
+	Referrer-Policy "strict-origin-when-cross-origin"
+	Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	# Le jeu ne charge que ses propres fichiers (et la police Google Fonts) ; les WebSockets
+	# vont vers la même origine. « unsafe-inline » pour les styles : la page en contient.
+	Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+	-Server
+}
+
 # Serveur de jeu : HTTP (matchmaking) et WebSockets, préfixe /colyseus retiré.
 handle_path /colyseus/* {
-	reverse_proxy game:2567
+	# Les requêtes du matchmaking sont minuscules : un corps énorme ne doit jamais atteindre
+	# le serveur de jeu (il le garderait en mémoire).
+	request_body {
+		max_size 16KB
+	}
+	reverse_proxy game:2567 {
+		# Adresse réelle du joueur, pour les limites par IP du serveur (il ne voit que Caddy).
+		header_up X-Real-IP {remote_host}
+	}
 }
 
 # Client : fichiers construits par Vite. Les fichiers de /assets portent un hash dans leur

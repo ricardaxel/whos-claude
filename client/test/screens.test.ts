@@ -63,6 +63,30 @@ describe("LobbyScreen", () => {
     expect(rows).toEqual(["Alicehôte", "Bobpas prêttoi"]);
   });
 
+  it("l'hôte peut exclure les autres joueurs, après confirmation", () => {
+    const lobby = new LobbyScreen(() => {});
+    const room = fakeRoom("host", { host: player("Alice"), guest: player("Bob") });
+    lobby.attach(room);
+    lobby.render();
+
+    const kicks = [...document.querySelectorAll<HTMLButtonElement>("#lobby-players button.kick")];
+    expect(kicks).toHaveLength(1); // pas sur sa propre ligne
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    kicks[0].click();
+    expect(room.send).not.toHaveBeenCalledWith(MSG.kick, expect.anything());
+    kicks[0].click();
+    expect(confirm).toHaveBeenLastCalledWith("Exclure Bob de la partie ?");
+    expect(room.send).toHaveBeenCalledWith(MSG.kick, { playerId: "guest" });
+    confirm.mockRestore();
+  });
+
+  it("un invité ne voit aucun bouton d'exclusion", () => {
+    const lobby = new LobbyScreen(() => {});
+    lobby.attach(fakeRoom("guest", { host: player("Alice"), guest: player("Bob"), other: player("Eve") }));
+    lobby.render();
+    expect(document.querySelectorAll("#lobby-players button.kick")).toHaveLength(0);
+  });
+
   it("n'écrase pas un menu déroulant que l'hôte est en train d'utiliser", () => {
     const lobby = new LobbyScreen(() => {});
     const room = fakeRoom("host", { host: player("Alice") });

@@ -1,4 +1,12 @@
 # Déploiement : docker compose up -d --build   (voir README, section « Déployer »)
+
+# Journaux tournants : sans ça, ils grossissent sans limite sur le disque du serveur.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   game:
     build:
@@ -15,6 +23,9 @@ services:
       retries: 3
       start_period: 10s
     stop_grace_period: 15s
+    # Plafond mémoire : un abus ne peut pas faire tomber toute la machine.
+    mem_limit: 512m
+    logging: *logging
 
   web:
     build:
@@ -33,6 +44,8 @@ services:
     volumes:
       - caddy_data:/data # certificats HTTPS : conservés entre les redéploiements
       - caddy_config:/config
+    mem_limit: 128m
+    logging: *logging
 
 volumes:
   caddy_data:

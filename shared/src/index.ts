@@ -303,6 +303,14 @@ export interface ReadyMessage {
   ready: boolean;
 }
 
+/** Client (hôte) → serveur, dans le salon : exclure un joueur de la partie. */
+export interface KickMessage {
+  playerId: string;
+}
+
+/** Code de fermeture envoyé à un joueur exclu par l'hôte (pas de tentative de reconnexion). */
+export const CLOSE_KICKED = 4003;
+
 /** Client (hôte) → serveur, dans le salon : réglages du match. */
 export interface SettingsMessage {
   modeId?: ModeId;
@@ -314,6 +322,7 @@ export const MSG = {
   ready: "ready",
   settings: "settings",
   startMatch: "startMatch",
+  kick: "kick",
   // Manche
   move: "move",
   aim: "aim",

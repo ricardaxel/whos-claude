@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CLOSE_KICKED } from "@whosclaude/shared";
 import { loadPage } from "./page";
 
 /**
@@ -106,6 +107,15 @@ describe("Session", () => {
     expect(fakeScene.attach).toHaveBeenLastCalledWith(back, expect.anything());
     expect(screen()).toBe("game");
     expect(location.search).toBe("?room=ABCD");
+  });
+
+  it("exclu par l'hôte : retour à l'accueil, sans tentative de reconnexion", async () => {
+    const { room } = await startSession();
+    room.drop(CLOSE_KICKED);
+    await flush();
+    expect(net.reconnectRoom).not.toHaveBeenCalled();
+    expect(screen()).toBe("home");
+    expect(document.getElementById("home-error")!.textContent).toBe("L'hôte t'a exclu de la partie.");
   });
 
   it("si la reconnexion échoue, retour à l'accueil avec un message", async () => {

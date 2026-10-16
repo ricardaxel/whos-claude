@@ -1,5 +1,5 @@
 import { getStateCallbacks } from "colyseus.js";
-import type { Phase } from "@whosclaude/shared";
+import { CLOSE_KICKED, type Phase } from "@whosclaude/shared";
 import { createRoom, GameRoom, joinRoom, reconnectRoom } from "./net";
 import type { GameScene } from "./GameScene";
 import { showScreen, type Screen } from "./ui/dom";
@@ -100,7 +100,7 @@ export class Session {
     this.room = undefined;
 
     // Coupure involontaire (écran verrouillé, wifi…) : on tente de reprendre sa place.
-    if (!this.leavingOnPurpose && code !== CONSENTED_LEAVE && token) {
+    if (!this.leavingOnPurpose && code !== CONSENTED_LEAVE && code !== CLOSE_KICKED && token) {
       const attempt = ++this.attempt;
       const cancelled = () => attempt !== this.attempt;
       showScreen("home");
@@ -122,6 +122,8 @@ export class Session {
 
     history.replaceState(null, "", location.pathname);
     showScreen("home");
-    this.home.show(this.leavingOnPurpose ? "" : "Connexion perdue avec la partie.");
+    this.home.show(
+      this.leavingOnPurpose ? "" : code === CLOSE_KICKED ? "L'hôte t'a exclu de la partie." : "Connexion perdue avec la partie.",
+    );
   }
 }

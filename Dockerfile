@@ -5,7 +5,7 @@
 #   - web  : Caddy, qui sert le client (build Vite) et fait suivre /colyseus au serveur.
 
 # --- Dépendances du client (et du code partagé) ---
-FROM node:22-alpine AS client-deps
+FROM node:22.23.3-alpine3.24 AS client-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/
@@ -21,12 +21,12 @@ COPY client client
 RUN npm run build -w client
 
 # --- Image web : Caddy + fichiers statiques du client ---
-FROM caddy:2-alpine AS web
+FROM caddy:2.11.7-alpine AS web
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=client-build /app/client/dist /srv
 
 # --- Dépendances du serveur ---
-FROM node:22-alpine AS game-deps
+FROM node:22.23.3-alpine3.24 AS game-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/
@@ -36,7 +36,7 @@ COPY client/package.json client/
 RUN npm ci -w server -w shared
 
 # --- Image game : serveur Colyseus ---
-FROM node:22-alpine AS game
+FROM node:22.23.3-alpine3.24 AS game
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=game-deps /app/node_modules node_modules

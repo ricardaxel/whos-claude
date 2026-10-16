@@ -1,4 +1,6 @@
-import { CROSSHAIR_COLORS, isModeId, MODES, MSG, ReadyMessage, ROUNDS, SettingsMessage } from "@whosclaude/shared";
+import {
+  CROSSHAIR_COLORS, isModeId, type KickMessage, MODES, MSG, ReadyMessage, ROUNDS, SettingsMessage,
+} from "@whosclaude/shared";
 import type { GameRoom } from "../net";
 import { byId, playerRow } from "./dom";
 
@@ -58,7 +60,8 @@ export class LobbyScreen {
         if (id === state.hostId) badges.push({ text: "hôte" });
         else badges.push(p.ready ? { text: "prêt", ok: true } : { text: "pas prêt" });
         if (id === sessionId) badges.push({ text: "toi" });
-        return playerRow(CROSSHAIR_COLORS[p.color] ?? 0xffffff, p.name, badges);
+        const actions = isHost && id !== sessionId ? [this.kickButton(id, p.name)] : [];
+        return playerRow(CROSSHAIR_COLORS[p.color] ?? 0xffffff, p.name, badges, actions);
       }),
     );
 
@@ -78,6 +81,19 @@ export class LobbyScreen {
     this.hostHint.textContent = isHost
       ? othersReady ? "Tout le monde est prêt." : "En attente des joueurs pas encore prêts…"
       : "L'hôte choisit les réglages et lance le match.";
+  }
+
+  /** Réservé à l'hôte : exclut un joueur, qui ne pourra plus revenir dans cette partie. */
+  private kickButton(playerId: string, name: string) {
+    const button = document.createElement("button");
+    button.className = "kick";
+    button.textContent = "Exclure";
+    button.addEventListener("click", () => {
+      if (!confirm(`Exclure ${name} de la partie ?`)) return;
+      const message: KickMessage = { playerId };
+      this.room?.send(MSG.kick, message);
+    });
+    return button;
   }
 
   private sendSettings(settings: SettingsMessage) {
