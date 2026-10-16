@@ -82,6 +82,17 @@ viser, tirer, action…), fusionnées par l'`InputManager`. `InputSender` retien
 celles qui comptent dans le mode en cours. Ajouter un périphérique = écrire une nouvelle
 source ; ajouter un mode = déclarer ses contrôles dans `InputSender`.
 
+## Personnages
+
+10 apparences en pixel art 16×16, inspirées des classes de Dragon Quest IX (guerrier,
+paladin, prêtre, mage, artiste martial, voleur, ménestrel, gladiateur, rôdeur, sage).
+Le serveur tire une apparence au hasard pour **chaque** personnage, joueur ou PNJ :
+elle ne révèle donc rien.
+
+Les grilles de pixels sont dans `client/src/sprites/characters.ts` (une tête, un corps et
+une palette par personnage) ; le jeu en fait ses textures au démarrage.
+`npm run sprites:preview` régénère les aperçus dans `docs/sprites/`.
+
 ## Structure
 
 - `shared/` : constantes, règles de déplacement et messages réseau communs.

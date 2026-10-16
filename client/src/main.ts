@@ -11,6 +11,8 @@ const game = new Phaser.Game({
   width: ARENA.width,
   height: ARENA.height,
   backgroundColor: "#2b3a2f",
+  // Pixel art : pas de lissage, pixels nets à toutes les échelles.
+  pixelArt: true,
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
   input: { gamepad: true, activePointers: 2 },
   scene: [scene],

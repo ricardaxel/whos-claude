@@ -12,7 +12,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "sprites:preview": "tsx scripts/render-sprites.ts"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.7",

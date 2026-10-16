@@ -14,6 +14,7 @@ export class Entity extends Schema implements EntityState {
   @type("float32") y = 0;
   @type("int8") dir = -1;
   @type("boolean") alive = true;
+  @type("uint8") look = 0;
 }
 
 /** Viseur d'un joueur. Public, mais son identifiant n'a aucun lien avec celui de l'entité. */

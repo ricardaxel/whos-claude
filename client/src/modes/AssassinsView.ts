@@ -27,6 +27,8 @@ export class AssassinsView implements ModeView {
     playing: "Déplace-toi (ZQSD, flèches, stick) · Couteau (Espace, A) : le geste se voit, frappe dans l'ombre !",
   };
 
+  readonly initialFacing = "down" as const;
+
   private floor: Phaser.GameObjects.Rectangle;
   private darkness?: Phaser.GameObjects.Image;
   private darknessRadius = 0;

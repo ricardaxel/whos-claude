@@ -10,6 +10,9 @@ export class RaceView implements ModeView {
     playing: "Avance (Espace, RT) · Sprint (Maj+Espace, LB) : ça se voit ! · Vise et tire (clic, RB) · Une balle",
   };
 
+  /** Tout le monde regarde la ligne d'arrivée. */
+  readonly initialFacing = "right" as const;
+
   private track: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene) {

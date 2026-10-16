@@ -1,5 +1,6 @@
 import type Phaser from "phaser";
 import type { GameStateShape, ModeId, Phase } from "@whosclaude/shared";
+import type { Facing } from "../sprites/characters";
 import { AssassinsView } from "./AssassinsView";
 import { RaceView } from "./RaceView";
 
@@ -9,6 +10,11 @@ export { DEPTH } from "./depth";
 export interface ModeView {
   /** Consignes affichées en haut de l'écran, par phase. */
   readonly hints: Partial<Record<Phase, string>>;
+  /**
+   * Orientation de tous les personnages avant leur premier pas. Identique pour tous :
+   * sinon, un joueur qui n'a pas encore bougé se distinguerait des PNJ déjà partis.
+   */
+  readonly initialFacing: Facing;
   update(state: GameStateShape, dt: number): void;
   destroy(): void;
 }

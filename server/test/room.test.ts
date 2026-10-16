@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Client } from "colyseus";
-import { MSG, RACE, ROUNDS, type JoinOptions } from "@whosclaude/shared";
+import { LOOK_COUNT, MSG, RACE, ROUNDS, type JoinOptions } from "@whosclaude/shared";
 import { GameRoom } from "../src/GameRoom.js";
 import {
   advance, advanceUntil, createRoom, internals, join, send, shoot, startMatch, useTestServer, waitFor,
@@ -190,6 +190,15 @@ describe("manche", () => {
     await b.room.leave();
     await waitFor(() => room.state.players.size === 1, "départ traité");
     expect((controllers.get(b.assigns[0].entityId) as unknown as { sprint: boolean }).sprint).toBe(false);
+  });
+
+  it("chaque personnage, joueur ou PNJ, a une apparence tirée parmi les 10", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+    await startMatch(room, [a, b]);
+    const looks = [...room.state.entities.values()].map((e) => e.look);
+    expect(looks.every((l) => Number.isInteger(l) && l >= 0 && l < LOOK_COUNT)).toBe(true);
+    expect(new Set(looks).size).toBeGreaterThan(1); // 20 tirages : jamais tous identiques en pratique
   });
 
   it("une seule balle, et on ne peut pas se tirer dessus", async () => {

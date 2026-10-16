@@ -1,6 +1,6 @@
 import { Client, Room, ServerError } from "colyseus";
 import {
-  AIM, ARENA, ASSASSINS, type KnifeMessage, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
+  AIM, ARENA, ASSASSINS, type KnifeMessage, LOOK_COUNT, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
   AimMessage, isDir, isModeId, MoveMessage, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
   RESULTS_SECONDS, RevealMessage, ROUNDS, sanitizeName, SettingsMessage, ShotMessage, SPEED, step, TICK_RATE,
   CROSSHAIR_COLORS,
@@ -307,6 +307,9 @@ export class GameRoom extends Room<GameState> {
     const entity = new Entity();
     entity.x = x;
     entity.y = y;
+    // Apparence tirée pour chaque entité AVANT l'attribution aux joueurs : elle ne dit rien
+    // de qui est contrôlé par un joueur.
+    entity.look = Math.floor(Math.random() * LOOK_COUNT);
     this.state.entities.set(id, entity);
     // Délai initial aléatoire pour que les PNJ ne démarrent pas tous ensemble.
     this.controllers.set(id, { playerId: null, input: IDLE, sprint: false, timer: Math.random() * 1.2 });

@@ -12,6 +12,8 @@ import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
 import { TouchSource } from "./input/TouchSource";
 import type { InputFrame } from "./input/types";
 import { DEPTH, MODE_VIEWS, type ModeView } from "./modes/ModeView";
+import { facingFromDir, WALK_CYCLE, WALK_FRAME_MS, type Facing } from "./sprites/characters";
+import { frameName, lookTexture, registerCharacterTextures } from "./sprites/textures";
 
 /** Vitesse de convergence de l'interpolation (plus haut = plus réactif). */
 const SMOOTHING = 12;
@@ -28,6 +30,16 @@ interface View<T extends Phaser.GameObjects.GameObject> {
   targetY: number;
 }
 
+/** Personnage affiché : sprite animé selon son orientation et s'il marche. */
+interface CharacterView extends View<Phaser.GameObjects.Sprite> {
+  facing: Facing;
+  moving: boolean;
+  alive: boolean;
+}
+
+/** Les sprites 16×16 sont affichés à ×2. */
+const SPRITE_SCALE = 2;
+
 /**
  * Rendu et inputs d'une manche. La scène ne se connecte pas elle-même :
  * la session lui confie la room (attach) et la lui reprend (detach).
@@ -37,7 +49,7 @@ export class GameScene extends Phaser.Scene {
   private hooks?: SceneHooks;
   private created = false;
   private inputs!: InputManager;
-  private entities = new Map<string, View<Phaser.GameObjects.Arc>>();
+  private entities = new Map<string, CharacterView>();
   private crosshairs = new Map<string, View<Phaser.GameObjects.Graphics>>();
   private myEntityId?: string;
   private myCrosshairId?: string;
@@ -87,6 +99,7 @@ export class GameScene extends Phaser.Scene {
     this.inputs = new InputManager([new KeyboardMouseSource(this), new GamepadSource(this), new TouchSource(this)]);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.inputs.destroy());
     this.input.setDefaultCursor("none");
+    registerCharacterTextures(this);
 
     this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(DEPTH.aimGhost);
     this.status = this.add.text(12, 10, "", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(DEPTH.hud);
@@ -119,17 +132,25 @@ export class GameScene extends Phaser.Scene {
     const $ = getStateCallbacks(room);
 
     $(room.state).entities.onAdd((entity: any, id: string) => {
-      const body = this.add.circle(entity.x, entity.y, ENTITY_RADIUS, 0xd9c8a9).setStrokeStyle(2, 0x3b2f22).setDepth(DEPTH.entity);
-      const view = { object: body, targetX: entity.x, targetY: entity.y };
+      const facing = this.view?.initialFacing ?? "down";
+      const sprite = this.add
+        .sprite(entity.x, entity.y, lookTexture(entity.look ?? 0), frameName(facing, 0))
+        .setScale(SPRITE_SCALE)
+        .setDepth(DEPTH.entity);
+      const view: CharacterView = { object: sprite, targetX: entity.x, targetY: entity.y, facing, moving: false, alive: true };
       this.entities.set(id, view);
       $(entity).onChange(() => {
         view.targetX = entity.x;
         view.targetY = entity.y;
+        view.moving = entity.dir >= 0;
+        view.facing = facingFromDir(entity.dir, view.facing);
         if (entity.dir >= 0) this.facing.set(id, entity.dir);
       });
+      $(entity).listen("look", (look: number) => sprite.setTexture(lookTexture(look), frameName(view.facing, 0)));
       $(entity).listen("alive", (alive: boolean) => {
-        // Un mort de PNJ ressemble exactement à un mort de joueur.
-        if (!alive) body.setFillStyle(0x6b6b6b).setStrokeStyle(2, 0x2a2a2a).setAlpha(0.75).setDepth(DEPTH.deadBody);
+        view.alive = alive;
+        // Un mort de PNJ ressemble exactement à un mort de joueur : couché et grisé.
+        if (!alive) sprite.setFrame(frameName(view.facing, 0)).setTint(0x8a8a8a).setAngle(-90).setAlpha(0.85).setDepth(DEPTH.deadBody);
       });
     });
 
@@ -271,6 +292,7 @@ export class GameScene extends Phaser.Scene {
     // Même interpolation pour tout le monde, y compris nous :
     // pas de prédiction locale, sinon notre perso réagirait plus vite que les autres.
     const alpha = 1 - Math.exp(-SMOOTHING * (deltaMs / 1000));
+    this.animateCharacters(time);
     for (const views of [this.entities, this.crosshairs]) {
       for (const view of views.values()) {
         view.object.x += (view.targetX - view.object.x) * alpha;
@@ -283,6 +305,20 @@ export class GameScene extends Phaser.Scene {
     const frame = this.inputs.read(deltaMs / 1000);
     this.sendInputs(frame, time);
     this.updateAimGhost(frame);
+  }
+
+  /**
+   * Marche en 4 temps quand l'entité se déplace, pose debout sinon. Même règle pour tout
+   * le monde (joueurs et PNJ), calculée uniquement à partir de l'état public. Les plus bas
+   * à l'écran passent devant, comme dans un vieux RPG.
+   */
+  private animateCharacters(time: number) {
+    const step = WALK_CYCLE[Math.floor(time / WALK_FRAME_MS) % WALK_CYCLE.length];
+    for (const view of this.entities.values()) {
+      if (!view.alive) continue;
+      view.object.setFrame(frameName(view.facing, view.moving ? step : 0));
+      view.object.setDepth(DEPTH.entity + view.object.y / ARENA.height / 2);
+    }
   }
 
   /** En début de manche, la visée repart de la position réelle de notre viseur. */

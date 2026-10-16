@@ -171,10 +171,15 @@ export interface EntityState {
   y: number;
   dir: number;
   alive: boolean;
+  /** Apparence (indice dans les personnages du client), tirée au hasard pour TOUTES les entités. */
+  look: number;
 }
 
+/** Nombre d'apparences de personnages disponibles côté client. */
+export const LOOK_COUNT = 10;
+
 /** Champs publics d'une entité. Tout ajout doit rester identique pour joueurs et PNJ. */
-export const ENTITY_FIELDS = ["x", "y", "dir", "alive"] as const satisfies readonly (keyof EntityState)[];
+export const ENTITY_FIELDS = ["x", "y", "dir", "alive", "look"] as const satisfies readonly (keyof EntityState)[];
 
 export interface CrosshairState {
   x: number;
