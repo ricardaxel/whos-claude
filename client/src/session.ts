@@ -1,3 +1,5 @@
+import { getStateCallbacks } from "colyseus.js";
+import type { Phase } from "@whosclaude/shared";
 import { createRoom, GameRoom, joinRoom } from "./net";
 import type { GameScene } from "./GameScene";
 import { showScreen, type Screen } from "./ui/dom";
@@ -8,6 +10,8 @@ import { PodiumScreen } from "./ui/PodiumScreen";
 /**
  * Flux de session côté client : accueil → salon → match → podium → salon.
  * Hors accueil, l'écran affiché découle uniquement de `state.phase` reçu du serveur.
+ * Les menus ne se redessinent que sur les changements qui les concernent,
+ * jamais à chaque patch de la manche.
  */
 export class Session {
   private room?: GameRoom;
@@ -35,20 +39,32 @@ export class Session {
 
     this.lobby.attach(room);
     this.scene.attach(room, { toggleReady: () => this.lobby.toggleReady() });
-    room.onStateChange(() => this.refresh());
+    this.bindMenus(room);
     room.onLeave(() => this.onLeft());
-    this.refresh();
   }
 
-  private refresh() {
-    const room = this.room;
-    const phase = room?.state.phase;
-    if (!room || !phase) return; // premier état pas encore reçu
+  private bindMenus(room: GameRoom) {
+    const $ = getStateCallbacks(room);
+    const renderMenus = () => this.renderMenus();
 
-    const screen: Screen = phase === "lobby" ? "lobby" : phase === "podium" ? "podium" : "game";
-    showScreen(screen);
-    if (screen === "lobby") this.lobby.render();
-    if (screen === "podium") this.podium.render(room);
+    $(room.state).listen("phase", (phase: Phase) => {
+      const screen: Screen = phase === "lobby" ? "lobby" : phase === "podium" ? "podium" : "game";
+      showScreen(screen);
+      renderMenus();
+    });
+    for (const field of ["hostId", "modeId", "totalRounds"] as const) $(room.state).listen(field, renderMenus);
+    $(room.state).players.onAdd((player: any) => {
+      $(player).onChange(renderMenus);
+      renderMenus();
+    });
+    $(room.state).players.onRemove(renderMenus);
+  }
+
+  private renderMenus() {
+    const room = this.room;
+    if (!room) return;
+    if (room.state.phase === "lobby") this.lobby.render();
+    if (room.state.phase === "podium") this.podium.render(room);
   }
 
   private async leave() {

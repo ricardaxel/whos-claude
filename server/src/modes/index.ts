@@ -1,4 +1,4 @@
-import type { ModeId } from "@whosclaude/shared";
+import { MAX_PLAYERS, type ModeId } from "@whosclaude/shared";
 import type { GameMode } from "./GameMode.js";
 import { RaceMode } from "./RaceMode.js";
 
@@ -6,3 +6,12 @@ import { RaceMode } from "./RaceMode.js";
 export const MODE_FACTORIES: Record<ModeId, () => GameMode> = {
   race: () => new RaceMode(),
 };
+
+export function createMode(id: ModeId): GameMode {
+  const mode = MODE_FACTORIES[id]();
+  // Chaque joueur prend le contrôle d'un PNJ : il en faut au moins un par joueur possible.
+  if (mode.entityCount < MAX_PLAYERS) {
+    throw new Error(`Mode "${id}" : ${mode.entityCount} entités pour ${MAX_PLAYERS} joueurs max.`);
+  }
+  return mode;
+}

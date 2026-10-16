@@ -56,16 +56,24 @@ export type Phase = "lobby" | "countdown" | "playing" | "roundEnd" | "podium";
 export const COUNTDOWN_SECONDS = 3;
 export const RESULTS_SECONDS = 6;
 export const PODIUM_SECONDS = 10;
-export const MAX_PLAYERS = 8;
 export const ROUNDS = { min: 1, max: 10, default: 3 } as const;
 export const NAME_MAX_LENGTH = 16;
 /** Alphabet des codes de room : sans lettres ambiguës (I, O). */
 export const ROOM_CODE = { alphabet: "ABCDEFGHJKLMNPQRSTUVWXYZ", length: 4 } as const;
 
-/** Nettoie un pseudo reçu du réseau ou saisi par le joueur. */
+/**
+ * Nettoie un pseudo reçu du réseau ou saisi par le joueur : retire les caractères
+ * de contrôle et de format (C0, C1, bidi, largeur nulle…) qui permettraient un pseudo
+ * invisible ou une usurpation, et tronque par caractère (jamais au milieu d'un emoji).
+ */
 export function sanitizeName(raw: unknown): string {
   if (typeof raw !== "string") return "";
-  return raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, NAME_MAX_LENGTH);
+  const cleaned = raw
+    .normalize("NFC")
+    .replace(/[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return Array.from(cleaned).slice(0, NAME_MAX_LENGTH).join("").trim();
 }
 
 // --- Registre des modes ---
@@ -108,11 +116,69 @@ export const AIM = {
   hitRadius: ENTITY_RADIUS + 4,
 } as const;
 
-/** Une couleur par viseur, attribuée dans l'ordre d'arrivée des joueurs. */
+/** Une couleur par joueur (viseur, salon), attribuée dans l'ordre d'arrivée. */
 export const CROSSHAIR_COLORS = [0xff5a5a, 0x4dabff, 0x5ad16a, 0xffb23d, 0xc77dff, 0x3de0d0, 0xff7ac8, 0xf2f2f2] as const;
+
+/** Un joueur = une couleur : pour accueillir plus de monde, ajouter des couleurs. */
+export const MAX_PLAYERS = CROSSHAIR_COLORS.length;
 
 export function clampToArena(x: number, y: number) {
   return { x: clamp(x, 0, ARENA.width), y: clamp(y, 0, ARENA.height) };
+}
+
+// --- État synchronisé ---
+// Implémenté par les Schema du serveur (`implements`) et lu tel quel par le client :
+// toute divergence casse la compilation au lieu de dériver en silence.
+
+/** Partie de l'API Map commune aux MapSchema (serveur) et à leur version décodée (client). */
+export interface ReadonlyMapLike<T> {
+  readonly size: number;
+  get(key: string): T | undefined;
+  has(key: string): boolean;
+  forEach(callback: (value: T, key: string) => void): void;
+  keys(): IterableIterator<string>;
+  values(): IterableIterator<T>;
+  entries(): IterableIterator<[string, T]>;
+  [Symbol.iterator](): IterableIterator<[string, T]>;
+}
+
+export interface EntityState {
+  x: number;
+  y: number;
+  dir: number;
+  alive: boolean;
+}
+
+/** Champs publics d'une entité. Tout ajout doit rester identique pour joueurs et PNJ. */
+export const ENTITY_FIELDS = ["x", "y", "dir", "alive"] as const satisfies readonly (keyof EntityState)[];
+
+export interface CrosshairState {
+  x: number;
+  y: number;
+  color: number;
+  loaded: boolean;
+}
+
+/** Joueur tel que le voient les autres. Ne référence JAMAIS son entité. */
+export interface PlayerInfoState {
+  name: string;
+  color: number;
+  ready: boolean;
+  score: number;
+}
+
+export const PLAYER_INFO_FIELDS = ["name", "color", "ready", "score"] as const satisfies readonly (keyof PlayerInfoState)[];
+
+export interface GameStateShape {
+  phase: Phase;
+  countdown: number;
+  hostId: string;
+  modeId: ModeId;
+  totalRounds: number;
+  round: number;
+  players: ReadonlyMapLike<PlayerInfoState>;
+  entities: ReadonlyMapLike<EntityState>;
+  crosshairs: ReadonlyMapLike<CrosshairState>;
 }
 
 // --- Messages réseau ---

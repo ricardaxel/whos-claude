@@ -1,11 +1,14 @@
 import { MapSchema, Schema, type } from "@colyseus/schema";
-import { DEFAULT_MODE, ROUNDS, type ModeId, type Phase } from "@whosclaude/shared";
+import {
+  DEFAULT_MODE, ROUNDS,
+  type CrosshairState, type EntityState, type GameStateShape, type ModeId, type Phase, type PlayerInfoState,
+} from "@whosclaude/shared";
 
 /**
  * Personnage dans l'arène. Volontairement minimal :
  * rien ici ne doit permettre de distinguer un joueur d'un PNJ.
  */
-export class Entity extends Schema {
+export class Entity extends Schema implements EntityState {
   @type("float32") x = 0;
   @type("float32") y = 0;
   @type("int8") dir = -1;
@@ -13,7 +16,7 @@ export class Entity extends Schema {
 }
 
 /** Viseur d'un joueur. Public, mais son identifiant n'a aucun lien avec celui de l'entité. */
-export class Crosshair extends Schema {
+export class Crosshair extends Schema implements CrosshairState {
   @type("float32") x = 0;
   @type("float32") y = 0;
   @type("uint8") color = 0;
@@ -24,14 +27,14 @@ export class Crosshair extends Schema {
  * Joueur tel que le voient les autres (salon, scores).
  * Ne contient JAMAIS de référence à son entité.
  */
-export class PlayerInfo extends Schema {
+export class PlayerInfo extends Schema implements PlayerInfoState {
   @type("string") name = "";
   @type("uint8") color = 0;
   @type("boolean") ready = false;
   @type("uint8") score = 0;
 }
 
-export class GameState extends Schema {
+export class GameState extends Schema implements GameStateShape {
   @type("string") phase: Phase = "lobby";
   @type("uint8") countdown = 0;
 

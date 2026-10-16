@@ -7,7 +7,7 @@ import {
 } from "@whosclaude/shared";
 import { Crosshair, Entity, GameState, PlayerInfo } from "./GameState.js";
 import type { GameMode, NpcBrain } from "./modes/GameMode.js";
-import { MODE_FACTORIES } from "./modes/index.js";
+import { createMode } from "./modes/index.js";
 import { releaseRoomCode, reserveRoomCode } from "./roomCodes.js";
 
 /** Données côté serveur uniquement : qui contrôle quoi. Jamais synchronisé. */
@@ -34,10 +34,13 @@ interface RoundPlayer {
  * Salon (réglages, joueurs prêts) → match de N manches → podium → salon.
  */
 export class GameRoom extends Room<GameState> {
+  /** Les tests passent à false et font avancer le temps eux-mêmes avec tick(). */
+  static autoTick = true;
+
   maxClients = MAX_PLAYERS;
   state = new GameState();
 
-  private mode: GameMode = MODE_FACTORIES[DEFAULT_MODE]();
+  private mode: GameMode = createMode(DEFAULT_MODE);
   private controllers = new Map<string, Controller>();
   private roundPlayers = new Map<string, RoundPlayer>();
   private phaseTimer = 0;
@@ -84,7 +87,11 @@ export class GameRoom extends Room<GameState> {
     });
 
     this.setPatchRate(1000 / TICK_RATE);
-    this.setSimulationInterval((deltaMs) => this.update(deltaMs / 1000), 1000 / TICK_RATE);
+    // Type inconnu (client d'une autre version, client modifié) : on ignore au lieu
+    // de déconnecter, ce qui éjecterait un joueur en pleine manche.
+    this.onMessage("*", () => {});
+
+    if (GameRoom.autoTick) this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), 1000 / TICK_RATE);
   }
 
   onAuth(_client: Client, _options: JoinOptions) {
@@ -94,6 +101,8 @@ export class GameRoom extends Room<GameState> {
   }
 
   onJoin(client: Client, options: JoinOptions) {
+    // onAuth est asynchrone : un startMatch a pu être traité entre-temps.
+    if (this.state.phase !== "lobby") throw new ServerError(403, "Un match est en cours, réessaie à la fin.");
     const info = new PlayerInfo();
     info.name = sanitizeName(options?.name) || `Joueur ${this.state.players.size + 1}`;
     info.color = this.freeColor();
@@ -140,7 +149,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private startMatch() {
-    this.mode = MODE_FACTORIES[this.state.modeId]();
+    this.mode = createMode(this.state.modeId);
     this.state.players.forEach((p) => (p.score = 0));
     this.state.round = 0;
     this.startRound();
@@ -180,7 +189,8 @@ export class GameRoom extends Room<GameState> {
     this.state.countdown = Math.ceil(seconds);
   }
 
-  private update(dt: number) {
+  /** Avance la simulation de dt secondes. */
+  tick(dt: number) {
     switch (this.state.phase) {
       case "countdown":
         this.moveCrosshairs(dt);
@@ -307,7 +317,8 @@ export class GameRoom extends Room<GameState> {
       const target = this.state.entities.get(targetId)!;
       target.alive = false;
       target.dir = IDLE;
-      const victimPlayer = [...this.roundPlayers.values()].find((p) => p.entityId === targetId);
+      const victimId = this.controllers.get(targetId)!.playerId;
+      const victimPlayer = victimId ? this.roundPlayers.get(victimId) : undefined;
       if (victimPlayer) {
         victimPlayer.alive = false;
         this.state.crosshairs.delete(victimPlayer.crosshairId);
@@ -322,18 +333,24 @@ export class GameRoom extends Room<GameState> {
   }
 
   private checkEndOfRound() {
-    const players = [...this.roundPlayers.values()];
-    const alive = players.filter((p) => p.alive);
-
-    const finishers = alive
-      .map((p) => ({ id: p.entityId, entity: this.state.entities.get(p.entityId)! }))
-      .filter(({ entity }) => this.mode.hasWon(entity))
-      .sort((a, b) => b.entity.x - a.entity.x);
-    if (finishers.length > 0) return this.endRound(finishers[0].id);
+    // Appelé à chaque tick : une seule passe, sans allocation.
+    let aliveCount = 0;
+    let lastAlive: RoundPlayer | undefined;
+    let winner: { entityId: string; x: number } | undefined;
+    for (const player of this.roundPlayers.values()) {
+      if (!player.alive) continue;
+      aliveCount++;
+      lastAlive = player;
+      const entity = this.state.entities.get(player.entityId)!;
+      // Plusieurs arrivées dans le même tick : le plus avancé gagne.
+      if (this.mode.hasWon(entity) && (!winner || entity.x > winner.x)) winner = { entityId: player.entityId, x: entity.x };
+    }
+    if (winner) return this.endRound(winner.entityId);
 
     // Dernier survivant, ou plus personne : seulement s'il y avait de la concurrence.
-    if (players.length >= 2 && alive.length === 1) return this.endRound(alive[0].entityId);
-    if (players.length >= 1 && alive.length === 0) return this.endRound(null);
+    const playerCount = this.roundPlayers.size;
+    if (playerCount >= 2 && aliveCount === 1) return this.endRound(lastAlive!.entityId);
+    if (playerCount >= 1 && aliveCount === 0) return this.endRound(null);
   }
 }
 

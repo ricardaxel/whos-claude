@@ -66,3 +66,18 @@ fusionnées par l'`InputManager`. Ajouter un périphérique = écrire une nouvel
 - Les identifiants d'entités et de viseurs sont aléatoires et sans lien entre eux.
 - Le lien joueur ↔ entité reste sur le serveur et n'est envoyé qu'au joueur concerné.
 - Le client n'utilise pas de prédiction locale : toutes les entités sont interpolées de la même façon.
+
+## Tests
+
+```bash
+npm test
+```
+
+- `shared/test` : règles pures (pseudos, déplacements, modes).
+- `server/test/units.test.ts` : modes, codes de room.
+- `server/test/room.test.ts` : salon, manches et match, avec un vrai serveur Colyseus.
+  Le temps est piloté par `room.tick(dt)` (`GameRoom.autoTick = false`), et les invariants
+  (un seul hôte, couleurs uniques, viseurs dans l'arène…) sont vérifiés à chaque tick.
+- `server/test/security.test.ts` : anti-fuite (un client espion ne doit rien apprendre
+  avant la révélation), fuzzing des messages réseau et des options de connexion,
+  budget de taille de l'état et des patches.

@@ -1,30 +1,8 @@
 import { Client, Room } from "colyseus.js";
-import { JoinOptions, ModeId, Phase, ROOM_NAME, SERVER_PORT } from "@whosclaude/shared";
+import { GameStateShape, JoinOptions, ROOM_NAME, SERVER_PORT } from "@whosclaude/shared";
 
-/**
- * Forme de l'état reçu du serveur (décodé par réflexion côté client).
- * Doit rester alignée avec server/src/GameState.ts.
- */
-export interface PlayerInfoView {
-  name: string;
-  color: number;
-  ready: boolean;
-  score: number;
-}
-
-export interface GameStateView {
-  phase: Phase;
-  countdown: number;
-  hostId: string;
-  modeId: ModeId;
-  totalRounds: number;
-  round: number;
-  players: Map<string, PlayerInfoView>;
-  entities: Map<string, { x: number; y: number; dir: number; alive: boolean }>;
-  crosshairs: Map<string, { x: number; y: number; color: number; loaded: boolean }>;
-}
-
-export type GameRoom = Room<GameStateView>;
+/** L'état reçu (décodé par réflexion) a la forme partagée, implémentée par le serveur. */
+export type GameRoom = Room<GameStateShape>;
 
 const client = new Client(`ws://${location.hostname}:${SERVER_PORT}`);
 
