@@ -16,11 +16,11 @@ export class InputManager {
   }
 
   read(dt: number): InputFrame {
-    const frame: InputFrame = { advance: false, reveal: false, fire: false, start: false, aim: this.aim };
+    const frame: InputFrame = { advance: false, sprint: false, fire: false, start: false, aim: this.aim };
     for (const source of this.sources) {
       const s = source.read(dt);
       frame.advance ||= !!s.advance;
-      frame.reveal ||= !!s.reveal;
+      frame.sprint ||= !!s.sprint;
       frame.fire ||= !!s.fire;
       frame.start ||= !!s.start;
       if (s.aimAt) this.aim = clampToArena(s.aimAt.x, s.aimAt.y);

@@ -2,7 +2,7 @@ import { Client, Room, ServerError } from "colyseus";
 import {
   AIM, ARENA, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
   AimMessage, isDir, isModeId, MoveMessage, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
-  RESULTS_SECONDS, RevealMessage, ROUNDS, sanitizeName, SettingsMessage, ShotMessage, step, TICK_RATE,
+  RESULTS_SECONDS, RevealMessage, ROUNDS, sanitizeName, SettingsMessage, ShotMessage, SPEED, step, TICK_RATE,
   CROSSHAIR_COLORS,
 } from "@whosclaude/shared";
 import { Crosshair, Entity, GameState, PlayerInfo } from "./GameState.js";
@@ -17,6 +17,8 @@ interface Controller extends NpcBrain {
   playerId: string | null;
   /** Direction demandée par le joueur (ignorée pour les PNJ). */
   input: Dir;
+  /** Sprint demandé par le joueur. Jamais vrai pour un PNJ. */
+  sprint: boolean;
 }
 
 /** Ce qu'un joueur contrôle pendant la manche en cours. Jamais synchronisé. */
@@ -77,7 +79,9 @@ export class GameRoom extends Room<GameState> {
     this.onMessage(MSG.move, (client, message: MoveMessage) => {
       const player = this.roundPlayers.get(client.sessionId);
       if (player?.alive && isDir(message?.dir)) {
-        this.controllers.get(player.entityId)!.input = this.mode.mapInput(message.dir);
+        const controller = this.controllers.get(player.entityId)!;
+        controller.input = this.mode.mapInput(message.dir);
+        controller.sprint = message.sprint === true;
       }
     });
 
@@ -134,6 +138,7 @@ export class GameRoom extends Room<GameState> {
     // L'entité redevient un PNJ et continue sa vie.
     const controller = this.controllers.get(player.entityId)!;
     controller.playerId = null;
+    controller.sprint = false;
     controller.timer = 0;
   }
 
@@ -244,6 +249,7 @@ export class GameRoom extends Room<GameState> {
     const [entityId, controller] = free[Math.floor(Math.random() * free.length)];
     controller.playerId = client.sessionId;
     controller.input = this.state.entities.get(entityId)!.dir as Dir;
+    controller.sprint = false;
 
     const crosshairId = randomId();
     const crosshair = new Crosshair();
@@ -267,7 +273,7 @@ export class GameRoom extends Room<GameState> {
     entity.y = y;
     this.state.entities.set(id, entity);
     // Délai initial aléatoire pour que les PNJ ne démarrent pas tous ensemble.
-    this.controllers.set(id, { playerId: null, input: IDLE, timer: Math.random() * 1.2 });
+    this.controllers.set(id, { playerId: null, input: IDLE, sprint: false, timer: Math.random() * 1.2 });
   }
 
   private moveCrosshairs(dt: number) {
@@ -302,7 +308,10 @@ export class GameRoom extends Room<GameState> {
       if (controller.playerId === null) this.mode.thinkNpc(entity, controller, dt);
       else entity.dir = controller.input;
 
-      const next = step(entity.x, entity.y, entity.dir as Dir, dt);
+      // Le sprint n'existe que pour les joueurs : un PNJ ne va jamais plus vite que SPEED.
+      const sprinting = controller.playerId !== null && controller.sprint;
+      const speed = sprinting ? SPEED * this.mode.sprintMultiplier : SPEED;
+      const next = step(entity.x, entity.y, entity.dir as Dir, dt, speed);
       entity.x = next.x;
       entity.y = next.y;
     });

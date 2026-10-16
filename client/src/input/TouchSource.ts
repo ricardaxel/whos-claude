@@ -6,18 +6,18 @@ const DRAG_GAIN = 1.6;
 
 /**
  * Téléphone : boutons à l'écran (#touch-controls dans index.html) pour avancer,
- * tirer, se repérer et lancer. Glisser un doigt sur le jeu déplace le viseur
+ * sprinter et tirer. Glisser un doigt sur le jeu déplace le viseur
  * comme sur un trackpad, pour que le doigt ne cache pas la cible.
  */
 export class TouchSource implements InputSource {
-  private held = { advance: false, reveal: false };
+  private held = { advance: false, sprint: false };
   private pending: SourceFrame = {};
   private lastDrag = new Map<number, { x: number; y: number }>();
   private cleanups: (() => void)[] = [];
 
   constructor(private readonly scene: Phaser.Scene) {
     this.bindHold("touch-advance", "advance");
-    this.bindHold("touch-reveal", "reveal");
+    this.bindHold("touch-sprint", "sprint");
     this.bindTap("touch-fire", "fire");
 
     scene.input.on("pointerdown", this.onPointerDown);

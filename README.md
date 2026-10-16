@@ -30,6 +30,12 @@ Les rooms sont privées : on n'y entre qu'avec le code. Les modes sont déclaré
 Tout le monde part de la ligne de départ. Une seule action pour se déplacer : avancer.
 Les PNJ avancent par à-coups, donc avancer en continu, c'est se trahir.
 
+Personne ne sait au départ quel personnage il contrôle : il faut bouger pour le découvrir,
+sans se faire remarquer.
+
+Les joueurs (et eux seuls) peuvent **sprinter** : nettement plus rapide (×1,8), mais
+aucun PNJ ne va jamais aussi vite, donc on se fait repérer tout de suite.
+
 Chaque joueur a aussi un viseur, visible par tous, et **une seule balle**. Le tir tue
 le personnage visé, joueur ou PNJ. Le viseur a une vitesse plafonnée : quand on tire
 sur un point, la visée se verrouille et le coup part quand le viseur l'atteint.
@@ -45,7 +51,7 @@ avec de nouveaux identifiants et une nouvelle attribution des personnages.
 | Avancer       | Espace, → ou D       | RT ou A           | Bouton « Avancer »        |
 | Viser         | Souris               | Un des sticks     | Glisser sur le jeu        |
 | Tirer         | Clic gauche ou F     | RB ou X           | Bouton « Tirer »          |
-| Me repérer    | Maj                  | LB ou Y           | Bouton « Moi ? »          |
+| Sprinter      | Maj + Espace         | LB ou Y + avancer | Bouton « Sprint » + « Avancer » |
 | Prêt (salon)  | Entrée               | Start             | Bouton du salon           |
 
 Les inputs passent par une couche d'abstraction (`client/src/input/`) : chaque

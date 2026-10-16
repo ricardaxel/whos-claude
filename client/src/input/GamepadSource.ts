@@ -10,7 +10,7 @@ const BTN = { A: 0, X: 2, Y: 3, LB: 4, RB: 5, RT: 7, START: 9 } as const;
 
 /**
  * Manette : un stick (au choix) pour viser, RT ou A pour avancer,
- * RB ou X pour tirer, Start pour lancer, LB ou Y pour se repérer.
+ * RB ou X pour tirer, Start pour être prêt, LB ou Y (maintenu) pour sprinter.
  */
 export class GamepadSource implements InputSource {
   private previous = new Map<number, boolean[]>();
@@ -30,7 +30,7 @@ export class GamepadSource implements InputSource {
       this.previous.set(pad.index, pressed);
 
       frame.advance ||= pressed[BTN.RT] || pressed[BTN.A];
-      frame.reveal ||= pressed[BTN.LB] || pressed[BTN.Y];
+      frame.sprint ||= pressed[BTN.LB] || pressed[BTN.Y];
       frame.fire ||= justPressed(BTN.RB) || justPressed(BTN.X);
       frame.start ||= justPressed(BTN.START);
 

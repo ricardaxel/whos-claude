@@ -23,15 +23,15 @@ class FakeSource implements InputSource {
 describe("InputManager", () => {
   it("part du centre de l'arène, sans aucune action", () => {
     const frame = new InputManager([]).read(0.016);
-    expect(frame).toEqual({ advance: false, reveal: false, fire: false, start: false, aim: { x: ARENA.width / 2, y: ARENA.height / 2 } });
+    expect(frame).toEqual({ advance: false, sprint: false, fire: false, start: false, aim: { x: ARENA.width / 2, y: ARENA.height / 2 } });
   });
 
   it("fusionne les boutons en OU entre les sources", () => {
     const keyboard = new FakeSource().push({ advance: true });
-    const pad = new FakeSource().push({ fire: true, reveal: true });
+    const pad = new FakeSource().push({ fire: true, sprint: true });
     const touch = new FakeSource().push({ start: true });
     const frame = new InputManager([keyboard, pad, touch]).read(0.016);
-    expect(frame).toMatchObject({ advance: true, fire: true, reveal: true, start: true });
+    expect(frame).toMatchObject({ advance: true, fire: true, sprint: true, start: true });
   });
 
   it("les fronts montants ne valent que pour une frame", () => {

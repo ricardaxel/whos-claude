@@ -14,12 +14,11 @@ import type { InputFrame } from "./input/types";
 
 /** Vitesse de convergence de l'interpolation (plus haut = plus réactif). */
 const SMOOTHING = 12;
-const REVEAL_ON_ASSIGN_MS = 2000;
 const CROSSHAIR_RADIUS = 14;
 
 const HUD_HINT: Partial<Record<Phase, string>> = {
-  countdown: "Prépare-toi… (Maj / LB pour te repérer)",
-  playing: "Avance (Espace, RT) · Vise et tire (clic, RB) · Une seule balle !",
+  countdown: "Prépare-toi… Lequel es-tu ? Bouge pour le découvrir.",
+  playing: "Avance (Espace, RT) · Sprint (Maj+Espace, LB) : ça se voit ! · Vise et tire (clic, RB) · Une balle",
 };
 
 /** Ce que la session peut demander à la scène. */
@@ -47,10 +46,8 @@ export class GameScene extends Phaser.Scene {
   private myEntityId?: string;
   private myCrosshairId?: string;
   private aimSynced = false;
-  private revealUntil = 0;
   private sender = new InputSender();
 
-  private marker!: Phaser.GameObjects.Arc;
   private aimGhost!: Phaser.GameObjects.Arc;
   private status!: Phaser.GameObjects.Text;
   private banner!: Phaser.GameObjects.Text;
@@ -89,7 +86,6 @@ export class GameScene extends Phaser.Scene {
     this.input.setDefaultCursor("none");
 
     this.drawTrack();
-    this.marker = this.add.circle(0, 0, ENTITY_RADIUS + 6).setStrokeStyle(3, 0xffd34d).setVisible(false).setDepth(10);
     this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(26);
     this.status = this.add.text(12, 10, "", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(40);
     this.toast = this.add
@@ -172,7 +168,6 @@ export class GameScene extends Phaser.Scene {
       this.aimSynced = false;
       // Nouvelle manche : le serveur repart d'une entité immobile, l'envoi aussi.
       this.sender.reset();
-      this.revealUntil = this.time.now + REVEAL_ON_ASSIGN_MS;
     });
 
     room.onMessage(MSG.shot, (message: ShotMessage) => this.showShot(message));
@@ -254,7 +249,7 @@ export class GameScene extends Phaser.Scene {
     this.syncAimWithCrosshair();
     const frame = this.inputs.read(deltaMs / 1000);
     this.sendInputs(frame, time);
-    this.updateMarker(time, frame);
+    this.updateAimGhost(frame);
   }
 
   /** En début de manche, la visée repart de la position réelle de notre viseur. */
@@ -276,12 +271,7 @@ export class GameScene extends Phaser.Scene {
     for (const { type, message } of this.sender.update(frame, phase, time)) room.send(type, message);
   }
 
-  private updateMarker(time: number, frame: InputFrame) {
-    const mine = this.myEntityId ? this.entities.get(this.myEntityId) : undefined;
-    const visible = !!mine && (frame.reveal || time < this.revealUntil);
-    this.marker.setVisible(visible);
-    if (visible && mine) this.marker.setPosition(mine.object.x, mine.object.y);
-
+  private updateAimGhost(frame: InputFrame) {
     // Point de visée local : la cible vers laquelle notre viseur se dirige.
     const hasCrosshair = !!this.myCrosshairId && this.crosshairs.has(this.myCrosshairId);
     this.aimGhost.setVisible(hasCrosshair).setPosition(frame.aim.x, frame.aim.y);

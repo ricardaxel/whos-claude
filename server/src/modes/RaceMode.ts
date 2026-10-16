@@ -11,6 +11,7 @@ const FORWARD: Dir = 0; // vers l'est, donc vers la ligne d'arrivée
  */
 export class RaceMode implements GameMode {
   readonly entityCount = RACE.entityCount;
+  readonly sprintMultiplier = RACE.sprintMultiplier;
 
   spawnPositions() {
     const gap = ARENA.height / (this.entityCount + 1);

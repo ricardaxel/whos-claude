@@ -166,6 +166,32 @@ describe("manche", () => {
     expect({ x: crosshair.x, y: crosshair.y }).toEqual({ x: 100, y: 100 });
   });
 
+  it("le sprint accélère le joueur, et jamais un PNJ", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+    await startMatch(room, [a, b]);
+    const runner = room.state.entities.get(a.assigns[0].entityId)!;
+    const sprinter = room.state.entities.get(b.assigns[0].entityId)!;
+
+    await send(room, a, MSG.move, { dir: 0 });
+    await send(room, b, MSG.move, { dir: 0, sprint: true });
+    advance(room, 2);
+    const normal = runner.x - RACE.startX;
+    const fast = sprinter.x - RACE.startX;
+    expect(fast / normal).toBeCloseTo(RACE.sprintMultiplier, 1);
+
+    // Aucun PNJ n'a dépassé la vitesse normale, même pendant que des joueurs sprintaient.
+    const { controllers } = internals(room);
+    room.state.entities.forEach((e, id) => {
+      if (controllers.get(id)!.playerId === null) expect(e.x - RACE.startX).toBeLessThanOrEqual(normal + 1e-6);
+    });
+
+    // Un joueur qui part en sprintant rend une entité qui ne sprinte plus.
+    await b.room.leave();
+    await waitFor(() => room.state.players.size === 1, "départ traité");
+    expect((controllers.get(b.assigns[0].entityId) as unknown as { sprint: boolean }).sprint).toBe(false);
+  });
+
   it("une seule balle, et on ne peut pas se tirer dessus", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];

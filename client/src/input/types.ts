@@ -5,8 +5,8 @@
 export interface SourceFrame {
   /** Action « avancer » maintenue. */
   advance?: boolean;
-  /** Afficher son propre personnage (maintenu). */
-  reveal?: boolean;
+  /** Sprint maintenu : plus rapide, mais réservé aux joueurs (les PNJ ne sprintent jamais). */
+  sprint?: boolean;
   /** Appuyé pendant cette frame (front montant). */
   fire?: boolean;
   start?: boolean;
@@ -25,7 +25,7 @@ export interface InputSource {
 /** Intentions fusionnées de toutes les sources. */
 export interface InputFrame {
   advance: boolean;
-  reveal: boolean;
+  sprint: boolean;
   fire: boolean;
   start: boolean;
   aim: { x: number; y: number };

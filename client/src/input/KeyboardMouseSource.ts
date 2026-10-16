@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import type { InputSource, SourceFrame } from "./types";
 
 /**
- * Clavier : Espace / → / D pour avancer, Entrée pour lancer, Maj pour se repérer, F pour tirer.
+ * Clavier : Espace / → / D pour avancer, Maj (avec Espace) pour sprinter, Entrée pour être prêt, F pour tirer.
  * Souris : la visée suit le curseur, clic gauche pour tirer.
  */
 export class KeyboardMouseSource implements InputSource {
@@ -26,7 +26,7 @@ export class KeyboardMouseSource implements InputSource {
     const frame: SourceFrame = {
       ...this.pending,
       advance: k.space.isDown || k.right.isDown || k.d.isDown,
-      reveal: k.shift.isDown,
+      sprint: k.shift.isDown,
     };
     this.pending = {};
     return frame;

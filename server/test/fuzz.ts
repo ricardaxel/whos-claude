@@ -36,7 +36,7 @@ export type Command =
   | { kind: "send"; from: number; type: string; payload: unknown }
   | { kind: "ready"; from: number; ready: boolean }
   | { kind: "start"; from: number }
-  | { kind: "run"; from: number; forward: boolean }
+  | { kind: "run"; from: number; forward: boolean; sprint: boolean }
   | { kind: "fireAt"; from: number; target: number }
   | { kind: "fireAtPlayer"; from: number; victim: number }
   | { kind: "tick"; seconds: number }
@@ -50,7 +50,7 @@ export function commandArb(players: number, { leaves }: { leaves: boolean }): fc
     { arbitrary: fc.record({ kind: fc.constant("send" as const), from, type: fc.constantFrom(...MESSAGE_TYPES), payload: payloadArb }), weight: 4 },
     { arbitrary: fc.record({ kind: fc.constant("ready" as const), from, ready: fc.boolean() }), weight: 2 },
     { arbitrary: fc.record({ kind: fc.constant("start" as const), from }), weight: 2 },
-    { arbitrary: fc.record({ kind: fc.constant("run" as const), from, forward: fc.boolean() }), weight: 2 },
+    { arbitrary: fc.record({ kind: fc.constant("run" as const), from, forward: fc.boolean(), sprint: fc.boolean() }), weight: 2 },
     { arbitrary: fc.record({ kind: fc.constant("fireAt" as const), from, target: fc.nat() }), weight: 1 },
     { arbitrary: fc.record({ kind: fc.constant("fireAtPlayer" as const), from, victim: fc.nat(players - 1) }), weight: 2 },
     {
@@ -96,7 +96,7 @@ export async function runCommands(room: GameRoom, players: Player[], commands: C
         await send(room, players[command.from], MSG.startMatch);
         break;
       case "run":
-        await send(room, players[command.from], MSG.move, { dir: command.forward ? 0 : -1 });
+        await send(room, players[command.from], MSG.move, { dir: command.forward ? 0 : -1, sprint: command.sprint });
         break;
       case "fireAtPlayer": {
         const victim = internals(room).roundPlayers.get(players[command.victim].sessionId);

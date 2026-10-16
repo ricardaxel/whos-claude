@@ -32,12 +32,12 @@ export function dirFromAxes(dx: number, dy: number): Dir {
  * Avance une position d'un pas. Retourne aussi si un mur a été touché.
  * Même fonction pour tout le monde : c'est ce qui rend joueurs et PNJ indiscernables.
  */
-export function step(x: number, y: number, dir: Dir, dt: number) {
+export function step(x: number, y: number, dir: Dir, dt: number, speed: number = SPEED) {
   if (dir === IDLE) return { x, y, blocked: false };
   const [vx, vy] = DIR_VECTORS[dir];
-  const nx = clamp(x + vx * SPEED * dt, ENTITY_RADIUS, ARENA.width - ENTITY_RADIUS);
-  const ny = clamp(y + vy * SPEED * dt, ENTITY_RADIUS, ARENA.height - ENTITY_RADIUS);
-  const blocked = nx !== x + vx * SPEED * dt || ny !== y + vy * SPEED * dt;
+  const nx = clamp(x + vx * speed * dt, ENTITY_RADIUS, ARENA.width - ENTITY_RADIUS);
+  const ny = clamp(y + vy * speed * dt, ENTITY_RADIUS, ARENA.height - ENTITY_RADIUS);
+  const blocked = nx !== x + vx * speed * dt || ny !== y + vy * speed * dt;
   return { x: nx, y: ny, blocked };
 }
 
@@ -105,6 +105,11 @@ export const RACE = {
   entityCount: 20,
   startX: 60,
   finishX: 900,
+  /**
+   * Vitesse en sprint, en multiple de SPEED. Réservé aux joueurs : un personnage qui
+   * sprinte se trahit aussitôt, en échange d'une arrivée plus rapide.
+   */
+  sprintMultiplier: 1.8,
 } as const;
 
 // --- Viseurs ---
@@ -195,6 +200,8 @@ export interface GameStateShape {
 export interface MoveMessage {
   /** Direction voulue (le mode décide comment l'interpréter). */
   dir: Dir;
+  /** Sprint demandé (sans effet si le mode n'en propose pas, ou à l'arrêt). */
+  sprint?: boolean;
 }
 
 /** Client → serveur, à cadence fixe (au plus une fois par tick), si la visée a changé. */

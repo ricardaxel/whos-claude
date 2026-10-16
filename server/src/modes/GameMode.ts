@@ -14,6 +14,11 @@ export interface NpcBrain {
 export interface GameMode {
   readonly entityCount: number;
   spawnPositions(): { x: number; y: number }[];
+  /**
+   * Vitesse de sprint en multiple de la vitesse normale ; 1 = pas de sprint dans ce mode.
+   * Les PNJ ne sprintent jamais : c'est une capacité qui trahit le joueur qui l'utilise.
+   */
+  readonly sprintMultiplier: number;
   /** Traduit l'input brut d'un joueur en direction autorisée par le mode. */
   mapInput(dir: Dir): Dir;
   /** Fait évoluer `entity.dir` pour un PNJ. */

@@ -16,13 +16,14 @@ export type Outgoing =
  * Décide quels messages envoyer à partir des intentions de la frame. Logique pure,
  * sans Phaser ni réseau : la scène se contente d'envoyer ce qui est renvoyé.
  *
- * - move : dès que la direction change, seul (jamais accompagné de la visée).
+ * - move : dès que la direction ou le sprint change, seul (jamais accompagné de la visée).
  * - aim : sur sa propre cadence (au plus un par tick), si la visée a bougé.
  * - fire : à chaque front de tir, avec le point visé.
  * Rien n'est envoyé hors des phases jouables.
  */
 export class InputSender {
   private lastDir: Dir = IDLE;
+  private lastSprint = false;
   private lastAim = { x: NaN, y: NaN };
   private lastAimAt = -Infinity;
 
@@ -33,6 +34,7 @@ export class InputSender {
    */
   reset() {
     this.lastDir = IDLE;
+    this.lastSprint = false;
     this.lastAim = { x: NaN, y: NaN }; // force l'envoi de la première visée
     this.lastAimAt = -Infinity;
   }
@@ -44,9 +46,12 @@ export class InputSender {
     if (frame.fire) out.push({ type: MSG.fire, message: { aimX: frame.aim.x, aimY: frame.aim.y } });
 
     const dir: Dir = frame.advance ? FORWARD : IDLE;
-    if (dir !== this.lastDir) {
-      out.push({ type: MSG.move, message: { dir } });
+    // Le sprint ne compte qu'en avançant : Maj seul ne déclenche aucun message.
+    const sprint = frame.advance && frame.sprint;
+    if (dir !== this.lastDir || sprint !== this.lastSprint) {
+      out.push({ type: MSG.move, message: { dir, sprint } });
       this.lastDir = dir;
+      this.lastSprint = sprint;
     }
 
     const aimMoved = frame.aim.x !== this.lastAim.x || frame.aim.y !== this.lastAim.y;
