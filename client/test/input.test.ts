@@ -23,7 +23,10 @@ class FakeSource implements InputSource {
 describe("InputManager", () => {
   it("part du centre de l'arène, sans aucune action", () => {
     const frame = new InputManager([]).read(0.016);
-    expect(frame).toEqual({ advance: false, sprint: false, fire: false, start: false, aim: { x: ARENA.width / 2, y: ARENA.height / 2 } });
+    expect(frame).toEqual({
+      advance: false, sprint: false, move: { x: 0, y: 0 }, action: false, fire: false, start: false,
+      aim: { x: ARENA.width / 2, y: ARENA.height / 2 },
+    });
   });
 
   it("fusionne les boutons en OU entre les sources", () => {
@@ -83,5 +86,20 @@ describe("InputManager", () => {
     const sources = [new FakeSource(), new FakeSource()];
     new InputManager(sources).destroy();
     expect(sources.every((s) => s.destroyed)).toBe(true);
+  });
+});
+
+describe("InputManager : déplacement libre et action", () => {
+  it("additionne les déplacements des sources en restant entre -1 et 1", () => {
+    const keyboard = new FakeSource().push({ move: { x: 1, y: 0 } });
+    const stick = new FakeSource().push({ move: { x: 0.8, y: -0.5 } });
+    const frame = new InputManager([keyboard, stick]).read(0.016);
+    expect(frame.move).toEqual({ x: 1, y: -0.5 });
+  });
+
+  it("l'action est un OU entre les sources, valable une frame", () => {
+    const inputs = new InputManager([new FakeSource(), new FakeSource().push({ action: true })]);
+    expect(inputs.read(0.016).action).toBe(true);
+    expect(inputs.read(0.016).action).toBe(false);
   });
 });

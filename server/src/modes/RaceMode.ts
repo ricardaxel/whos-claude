@@ -12,6 +12,9 @@ const FORWARD: Dir = 0; // vers l'est, donc vers la ligne d'arrivée
 export class RaceMode implements GameMode {
   readonly entityCount = RACE.entityCount;
   readonly sprintMultiplier = RACE.sprintMultiplier;
+  readonly crosshairs = true;
+  readonly knife = false;
+  readonly roundSeconds = 0;
 
   spawnPositions() {
     const gap = ARENA.height / (this.entityCount + 1);

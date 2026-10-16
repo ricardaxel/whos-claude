@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { getStateCallbacks } from "colyseus.js";
 import {
-  ARENA, AssignMessage, CROSSHAIR_COLORS, ENTITY_RADIUS, MSG, Phase, RACE,
+  ARENA, AssignMessage, CROSSHAIR_COLORS, DIR_VECTORS, ENTITY_RADIUS, KnifeMessage, ModeId, MSG, Phase,
   RevealMessage, ShotMessage,
 } from "@whosclaude/shared";
 import type { GameRoom } from "./net";
@@ -11,15 +11,11 @@ import { GamepadSource } from "./input/GamepadSource";
 import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
 import { TouchSource } from "./input/TouchSource";
 import type { InputFrame } from "./input/types";
+import { DEPTH, MODE_VIEWS, type ModeView } from "./modes/ModeView";
 
 /** Vitesse de convergence de l'interpolation (plus haut = plus réactif). */
 const SMOOTHING = 12;
 const CROSSHAIR_RADIUS = 14;
-
-const HUD_HINT: Partial<Record<Phase, string>> = {
-  countdown: "Prépare-toi… Lequel es-tu ? Bouge pour le découvrir.",
-  playing: "Avance (Espace, RT) · Sprint (Maj+Espace, LB) : ça se voit ! · Vise et tire (clic, RB) · Une balle",
-};
 
 /** Ce que la session peut demander à la scène. */
 export interface SceneHooks {
@@ -47,6 +43,10 @@ export class GameScene extends Phaser.Scene {
   private myCrosshairId?: string;
   private aimSynced = false;
   private sender = new InputSender();
+  private view?: ModeView;
+  private viewMode?: ModeId;
+  /** Dernière direction non nulle de chaque entité : orientation du coup de couteau. */
+  private facing = new Map<string, number>();
 
   private aimGhost!: Phaser.GameObjects.Arc;
   private status!: Phaser.GameObjects.Text;
@@ -73,6 +73,9 @@ export class GameScene extends Phaser.Scene {
     this.hooks = undefined;
     this.myEntityId = this.myCrosshairId = undefined;
     this.sender.reset();
+    this.facing.clear();
+    this.view?.destroy();
+    this.view = this.viewMode = undefined;
     if (this.created) {
       this.banner.setText("");
       this.toast.setText("");
@@ -85,64 +88,59 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.inputs.destroy());
     this.input.setDefaultCursor("none");
 
-    this.drawTrack();
-    this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(26);
-    this.status = this.add.text(12, 10, "", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(40);
+    this.aimGhost = this.add.circle(0, 0, 3, 0xffffff, 0.8).setVisible(false).setDepth(DEPTH.aimGhost);
+    this.status = this.add.text(12, 10, "", { fontFamily: "sans-serif", fontSize: "16px", color: "#ffffff" }).setDepth(DEPTH.hud);
     this.toast = this.add
       .text(ARENA.width / 2, 40, "", { fontFamily: "sans-serif", fontSize: "22px", fontStyle: "bold", color: "#ffffff", stroke: "#000000", strokeThickness: 4 })
       .setOrigin(0.5)
-      .setDepth(40);
+      .setDepth(DEPTH.hud);
     this.banner = this.add
       .text(ARENA.width / 2, ARENA.height / 2, "", {
         fontFamily: "sans-serif", fontSize: "56px", fontStyle: "bold", color: "#ffffff",
         stroke: "#000000", strokeThickness: 6, align: "center",
       })
       .setOrigin(0.5)
-      .setDepth(40);
+      .setDepth(DEPTH.hud);
 
     this.created = true;
     if (this.room) this.bindRoom(this.room);
   }
 
-  // TODO(2e mode) : le décor dépendra du mode, à déplacer dans un rendu par mode.
-  private drawTrack() {
-    const g = this.add.graphics();
-    // Ligne de départ, juste derrière les personnages.
-    g.fillStyle(0xffffff, 0.5).fillRect(RACE.startX - ENTITY_RADIUS - 6, 0, 3, ARENA.height);
-    // Ligne d'arrivée en damier.
-    const size = 10;
-    for (let row = 0; row * size < ARENA.height; row++) {
-      for (let col = 0; col < 2; col++) {
-        g.fillStyle((row + col) % 2 === 0 ? 0xffffff : 0x000000, 0.8);
-        g.fillRect(RACE.finishX + col * size, row * size, size, size);
-      }
-    }
+  /** Le décor suit le mode choisi dans le salon. */
+  private setModeView(modeId: ModeId) {
+    if (modeId === this.viewMode || !MODE_VIEWS[modeId]) return;
+    this.view?.destroy();
+    this.view = MODE_VIEWS[modeId](this);
+    this.viewMode = modeId;
+    this.refreshStatus();
   }
 
   private bindRoom(room: GameRoom) {
     const $ = getStateCallbacks(room);
 
     $(room.state).entities.onAdd((entity: any, id: string) => {
-      const body = this.add.circle(entity.x, entity.y, ENTITY_RADIUS, 0xd9c8a9).setStrokeStyle(2, 0x3b2f22).setDepth(5);
+      const body = this.add.circle(entity.x, entity.y, ENTITY_RADIUS, 0xd9c8a9).setStrokeStyle(2, 0x3b2f22).setDepth(DEPTH.entity);
       const view = { object: body, targetX: entity.x, targetY: entity.y };
       this.entities.set(id, view);
       $(entity).onChange(() => {
         view.targetX = entity.x;
         view.targetY = entity.y;
+        if (entity.dir >= 0) this.facing.set(id, entity.dir);
       });
       $(entity).listen("alive", (alive: boolean) => {
         // Un mort de PNJ ressemble exactement à un mort de joueur.
-        if (!alive) body.setFillStyle(0x6b6b6b).setStrokeStyle(2, 0x2a2a2a).setAlpha(0.75).setDepth(1);
+        if (!alive) body.setFillStyle(0x6b6b6b).setStrokeStyle(2, 0x2a2a2a).setAlpha(0.75).setDepth(DEPTH.deadBody);
       });
     });
 
     $(room.state).entities.onRemove((_entity: any, id: string) => {
       this.entities.get(id)?.object.destroy();
       this.entities.delete(id);
+      this.facing.delete(id);
     });
 
     $(room.state).crosshairs.onAdd((crosshair: any, id: string) => {
-      const graphics = this.add.graphics().setPosition(crosshair.x, crosshair.y).setDepth(25);
+      const graphics = this.add.graphics().setPosition(crosshair.x, crosshair.y).setDepth(DEPTH.crosshair);
       const view = { object: graphics, targetX: crosshair.x, targetY: crosshair.y };
       this.crosshairs.set(id, view);
       const redraw = () => drawCrosshair(graphics, CROSSHAIR_COLORS[crosshair.color] ?? 0xffffff, crosshair.loaded);
@@ -161,25 +159,38 @@ export class GameScene extends Phaser.Scene {
 
     $(room.state).listen("phase", (phase: Phase) => this.onPhase(phase));
     $(room.state).listen("countdown", () => this.refreshBanner());
+    $(room.state).listen("modeId", (modeId: ModeId) => this.setModeView(modeId));
+    $(room.state).listen("timeLeft", () => this.refreshStatus());
 
     room.onMessage(MSG.assign, (message: AssignMessage) => {
       this.myEntityId = message.entityId;
-      this.myCrosshairId = message.crosshairId;
+      this.myCrosshairId = message.crosshairId ?? undefined;
       this.aimSynced = false;
       // Nouvelle manche : le serveur repart d'une entité immobile, l'envoi aussi.
       this.sender.reset();
     });
 
     room.onMessage(MSG.shot, (message: ShotMessage) => this.showShot(message));
+    room.onMessage(MSG.knife, (message: KnifeMessage) => this.showKnife(message));
     room.onMessage(MSG.reveal, (message: RevealMessage) => this.showResults(message));
   }
 
   private onPhase(phase: Phase) {
-    const state = this.room!.state;
-    const roundLabel = state.round > 0 ? `Manche ${state.round}/${state.totalRounds} · ` : "";
-    this.status.setText(HUD_HINT[phase] ? roundLabel + HUD_HINT[phase] : "");
+    this.refreshStatus();
     if (phase !== "roundEnd") this.clearResults();
     this.refreshBanner();
+  }
+
+  /** Bandeau du haut : manche, temps restant (si le mode en a), consignes du mode. */
+  private refreshStatus() {
+    const state = this.room?.state;
+    if (!state || !this.created) return;
+    const hint = this.view?.hints[state.phase];
+    if (!hint) return void this.status.setText("");
+    const parts = [`Manche ${state.round}/${state.totalRounds}`];
+    if (state.timeLeft > 0) parts.push(formatTime(state.timeLeft));
+    parts.push(hint);
+    this.status.setText(parts.join(" · "));
   }
 
   private refreshBanner() {
@@ -204,6 +215,27 @@ export class GameScene extends Phaser.Scene {
     this.flash(this.toast, message, 1800);
   }
 
+  /**
+   * Coup de couteau : un éclair et une entaille devant le personnage. Dessiné SOUS
+   * l'obscurité : bien visible dans la lumière, à peine dans le noir.
+   */
+  private showKnife({ entityId, victim }: KnifeMessage) {
+    const view = this.entities.get(entityId);
+    if (view) {
+      const [vx, vy] = DIR_VECTORS[this.facing.get(entityId) ?? 0];
+      const angle = Math.atan2(vy, vx);
+      const reach = ENTITY_RADIUS + 10;
+      const slash = this.add.graphics().setPosition(view.object.x, view.object.y).setDepth(DEPTH.effect);
+      slash.lineStyle(4, 0xffffff, 1).beginPath();
+      slash.arc(0, 0, reach, angle - 1, angle + 1);
+      slash.strokePath();
+      slash.fillStyle(0xfff3c4, 0.9).fillCircle(Math.cos(angle) * reach, Math.sin(angle) * reach, 5);
+      this.tweens.add({ targets: slash, alpha: 0, scale: 1.3, duration: 400, onComplete: () => slash.destroy() });
+    }
+    // Seule la mort d'un joueur est annoncée : un PNJ tué dans l'ombre passe inaperçu.
+    if (victim === "player") this.flash(this.toast, "Un joueur a été poignardé !", 1800);
+  }
+
   private showResults({ winnerPlayerId, winnerEntityId, players }: RevealMessage) {
     const state = this.room!.state;
     // Fin de manche : on révèle tous les joueurs (avec leur pseudo), le gagnant en doré.
@@ -215,13 +247,13 @@ export class GameScene extends Phaser.Scene {
       const ring = this.add
         .circle(view.targetX, view.targetY, ENTITY_RADIUS + (isWinner ? 9 : 5))
         .setStrokeStyle(isWinner ? 5 : 3, isWinner ? 0xffd34d : CROSSHAIR_COLORS[info.color] ?? 0xffffff)
-        .setDepth(15);
+        .setDepth(DEPTH.reveal);
       const label = this.add
         .text(view.targetX, view.targetY - ENTITY_RADIUS - 14, info.name, {
           fontFamily: "sans-serif", fontSize: "14px", color: "#ffffff", stroke: "#000000", strokeThickness: 3,
         })
         .setOrigin(0.5, 1)
-        .setDepth(16);
+        .setDepth(DEPTH.reveal);
       this.revealObjects.push(ring, label);
     }
 
@@ -246,6 +278,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.room) this.view?.update(this.room.state, deltaMs / 1000);
     this.syncAimWithCrosshair();
     const frame = this.inputs.read(deltaMs / 1000);
     this.sendInputs(frame, time);
@@ -268,7 +301,7 @@ export class GameScene extends Phaser.Scene {
     // Entrée / Start servent à se déclarer prêt dans le salon (utile à la manette).
     if (frame.start && phase === "lobby") this.hooks?.toggleReady();
 
-    for (const { type, message } of this.sender.update(frame, phase, time)) room.send(type, message);
+    for (const { type, message } of this.sender.update(frame, phase, time, room.state.modeId)) room.send(type, message);
   }
 
   private updateAimGhost(frame: InputFrame) {
@@ -287,4 +320,8 @@ function drawCrosshair(g: Phaser.GameObjects.Graphics, color: number, loaded: bo
   // Point plein = balle disponible ; vide = déjà tiré.
   if (loaded) g.fillStyle(color, 1).fillCircle(0, 0, 3);
   else g.lineStyle(1.5, color, 0.8).strokeCircle(0, 0, 3);
+}
+
+function formatTime(seconds: number) {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }

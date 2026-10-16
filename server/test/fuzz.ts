@@ -1,10 +1,10 @@
 import fc from "fast-check";
 import { expect } from "vitest";
-import { ARENA, MSG, type Phase } from "@whosclaude/shared";
+import { ARENA, ENTITY_RADIUS, MSG, type Phase } from "@whosclaude/shared";
 import type { GameRoom } from "../src/GameRoom.js";
 import { advance, checkInvariants, internals, send, waitFor, type Player } from "./helpers.js";
 
-const MESSAGE_TYPES = [MSG.move, MSG.aim, MSG.fire, MSG.settings, MSG.ready, MSG.startMatch, "inconnu"];
+const MESSAGE_TYPES = [MSG.move, MSG.aim, MSG.fire, MSG.stab, MSG.settings, MSG.ready, MSG.startMatch, "inconnu"];
 
 /** Charges utiles : du n'importe quoi, mais aussi des messages plausibles pour atteindre la manche. */
 const payloadArb = fc.oneof(
@@ -21,7 +21,7 @@ const payloadArb = fc.oneof(
   {
     arbitrary: fc.record({
       rounds: fc.oneof(fc.integer({ min: -5, max: 15 }), fc.double()),
-      modeId: fc.constantFrom("race", "__proto__", "constructor", ""),
+      modeId: fc.constantFrom("race", "assassins", "__proto__", "constructor", ""),
     }),
     weight: 1,
   },
@@ -42,6 +42,8 @@ export type Command =
   | { kind: "tick"; seconds: number }
   /** Un joueur court jusqu'à l'arrivée : permet d'enchaîner les manches jusqu'au podium. */
   | { kind: "finish"; from: number }
+  /** Coup de couteau sur un joueur : l'attaquant est placé à côté de sa cible. */
+  | { kind: "stabPlayer"; from: number; victim: number }
   | { kind: "leave"; from: number };
 
 export function commandArb(players: number, { leaves }: { leaves: boolean }): fc.Arbitrary<Command> {
@@ -53,6 +55,7 @@ export function commandArb(players: number, { leaves }: { leaves: boolean }): fc
     { arbitrary: fc.record({ kind: fc.constant("run" as const), from, forward: fc.boolean(), sprint: fc.boolean() }), weight: 2 },
     { arbitrary: fc.record({ kind: fc.constant("fireAt" as const), from, target: fc.nat() }), weight: 1 },
     { arbitrary: fc.record({ kind: fc.constant("fireAtPlayer" as const), from, victim: fc.nat(players - 1) }), weight: 2 },
+    { arbitrary: fc.record({ kind: fc.constant("stabPlayer" as const), from, victim: fc.nat(players - 1) }), weight: 2 },
     {
       arbitrary: fc.record({
         kind: fc.constant("tick" as const),
@@ -114,8 +117,28 @@ export async function runCommands(room: GameRoom, players: Player[], commands: C
       case "tick":
         advance(room, command.seconds);
         break;
+      case "stabPlayer": {
+        const { roundPlayers } = internals(room);
+        const attacker = roundPlayers.get(players[command.from].sessionId);
+        const victim = roundPlayers.get(players[command.victim].sessionId);
+        const self = attacker && room.state.entities.get(attacker.entityId);
+        const target = victim && room.state.entities.get(victim.entityId);
+        if (self && target) {
+          self.x = target.x + ENTITY_RADIUS * 1.5;
+          self.y = target.y;
+        }
+        await send(room, players[command.from], MSG.stab);
+        break;
+      }
       case "finish":
         if (room.state.phase !== "playing") break;
+        if (room.state.modeId === "assassins") {
+          // Fin par la limite de temps, sans simuler 2 minutes tick par tick
+          // (le minuteur lui-même a son test dédié).
+          (room as unknown as { roundRemaining: number }).roundRemaining = 0.01;
+          advance(room, 0.05);
+          break;
+        }
         await send(room, players[command.from], MSG.move, { dir: 0 });
         advance(room, 14);
         break;

@@ -55,6 +55,10 @@
       #touch-advance { left: 16px; bottom: 16px; width: 96px; height: 96px; }
       #touch-sprint { left: 124px; bottom: 16px; width: 64px; height: 64px; font-size: 13px; border-color: #ffb23d; }
       #touch-fire { right: 16px; bottom: 16px; width: 96px; height: 96px; border-color: #ff5a5a; }
+      #touch-stab { right: 16px; bottom: 16px; width: 96px; height: 96px; border-color: #c77dff; }
+      /* Boutons propres à chaque mode. En assassins, on se déplace en glissant le doigt sur le jeu. */
+      body:not([data-mode="race"]) :is(#touch-advance, #touch-sprint, #touch-fire) { display: none; }
+      body:not([data-mode="assassins"]) #touch-stab { display: none; }
       #rotate-hint {
         position: fixed; top: 24px; left: 0; right: 0;
         text-align: center; color: #bbb; font-size: 14px;
@@ -117,6 +121,7 @@
       <button id="touch-advance" class="touch-btn">Avancer</button>
       <button id="touch-sprint" class="touch-btn">Sprint</button>
       <button id="touch-fire" class="touch-btn">Tirer</button>
+      <button id="touch-stab" class="touch-btn">Couteau</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

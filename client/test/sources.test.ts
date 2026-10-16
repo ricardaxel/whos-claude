@@ -3,7 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPage } from "./page";
 
 // Phaser complet ne se charge pas hors navigateur : seules les constantes de touches servent ici.
-vi.mock("phaser", () => ({ default: { Input: { Keyboard: { KeyCodes: { SPACE: 32, RIGHT: 39, D: 68, SHIFT: 16 } } } } }));
+vi.mock("phaser", () => ({
+  default: {
+    Input: {
+      Keyboard: {
+        KeyCodes: { SPACE: 32, SHIFT: 16, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, A: 65, D: 68, E: 69, Q: 81, S: 83, W: 87, Z: 90 },
+      },
+    },
+  },
+}));
 
 const { KeyboardMouseSource } = await import("../src/input/KeyboardMouseSource");
 const { GamepadSource } = await import("../src/input/GamepadSource");
@@ -54,6 +62,34 @@ describe("KeyboardMouseSource", () => {
     }
     keys.shift.isDown = true;
     expect(source.read().sprint).toBe(true);
+  });
+
+  it("déplacement libre : flèches, ZQSD et WASD", () => {
+    const { scene, keys } = fakeScene();
+    const source = new KeyboardMouseSource(scene);
+    const cases: [string, { x: number; y: number }][] = [
+      ["right", { x: 1, y: 0 }], ["d", { x: 1, y: 0 }],
+      ["left", { x: -1, y: 0 }], ["q", { x: -1, y: 0 }], ["a", { x: -1, y: 0 }],
+      ["up", { x: 0, y: -1 }], ["z", { x: 0, y: -1 }], ["w", { x: 0, y: -1 }],
+      ["down", { x: 0, y: 1 }], ["s", { x: 0, y: 1 }],
+    ];
+    for (const [key, move] of cases) {
+      keys[key].isDown = true;
+      expect(source.read().move, key).toEqual(move);
+      keys[key].isDown = false;
+    }
+    keys.right.isDown = keys.down.isDown = true;
+    expect(source.read().move).toEqual({ x: 1, y: 1 });
+  });
+
+  it("Espace ou E déclenchent l'action, une fois par appui", () => {
+    const { scene, keyboard } = fakeScene();
+    const source = new KeyboardMouseSource(scene);
+    keyboard.emit("keydown-SPACE");
+    expect(source.read().action).toBe(true);
+    expect(source.read().action).toBeUndefined();
+    keyboard.emit("keydown-E");
+    expect(source.read().action).toBe(true);
   });
 
   it("Entrée = prêt et F = tir, une seule fois par appui", () => {
@@ -114,6 +150,15 @@ describe("GamepadSource", () => {
     expect(source.read(0.016).fire).toBe(true);
   });
 
+  it("le stick gauche déplace, A déclenche l'action", () => {
+    const pads = [pad([BTN.A], { x: 0.7, y: -0.7 })];
+    const source = new GamepadSource(fakeScene(pads).scene);
+    const frame = source.read(0.016);
+    expect(frame.move).toEqual({ x: 0.7, y: -0.7 });
+    expect(frame.action).toBe(true);
+    expect(source.read(0.016).action).toBe(false); // A toujours enfoncé : pas de nouveau coup
+  });
+
   it("le stick vise en relatif, avec une zone morte", () => {
     expect(new GamepadSource(fakeScene([pad([], { x: 0.1, y: 0 })]).scene).read(1).aimDelta).toEqual({ x: 0, y: 0 });
     const delta = new GamepadSource(fakeScene([pad([], { x: 1, y: 0 })]).scene).read(0.5).aimDelta!;
@@ -141,6 +186,26 @@ describe("TouchSource", () => {
     expect(source.read()).toMatchObject({ advance: true, sprint: true });
     press("touch-sprint", "pointercancel");
     expect(source.read()).toMatchObject({ advance: false, sprint: false });
+  });
+
+  it("joystick virtuel : le décalage du doigt depuis son point d'appui donne le déplacement", () => {
+    const { scene, input } = fakeScene();
+    const source = new TouchSource(scene);
+    input.emit("pointerdown", pointer({ wasTouch: true, worldX: 200, worldY: 200 }));
+    expect(source.read().move).toEqual({ x: 0, y: 0 });
+    input.emit("pointermove", pointer({ wasTouch: true, worldX: 203, worldY: 200 })); // zone morte
+    expect(source.read().move).toEqual({ x: 0, y: 0 });
+    input.emit("pointermove", pointer({ wasTouch: true, worldX: 300, worldY: 200 })); // à fond à droite
+    expect(source.read().move).toEqual({ x: 1, y: 0 });
+    input.emit("pointerup", pointer({ wasTouch: true }));
+    expect(source.read().move).toEqual({ x: 0, y: 0 });
+  });
+
+  it("Couteau : une action par appui", () => {
+    const source = new TouchSource(fakeScene().scene);
+    press("touch-stab");
+    expect(source.read().action).toBe(true);
+    expect(source.read().action).toBeUndefined();
   });
 
   it("Tirer : une fois par appui", () => {

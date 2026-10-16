@@ -53,6 +53,8 @@ export class Session {
       renderMenus();
     });
     for (const field of ["hostId", "modeId", "totalRounds"] as const) $(room.state).listen(field, renderMenus);
+    // Les contrôles tactiles affichés dépendent du mode (voir index.html).
+    $(room.state).listen("modeId", (modeId: string) => (document.body.dataset.mode = modeId));
     $(room.state).players.onAdd((player: any) => {
       $(player).onChange(renderMenus);
       renderMenus();

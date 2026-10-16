@@ -5,8 +5,8 @@ import type { Server } from "colyseus";
 import type { Room as ClientRoom } from "colyseus.js";
 import { afterAll, afterEach, beforeAll, expect } from "vitest";
 import {
-  ARENA, CROSSHAIR_COLORS, MSG, ROOM_NAME, ROUNDS, TICK_RATE,
-  type AssignMessage, type RevealMessage, type ShotMessage,
+  ARENA, CROSSHAIR_COLORS, ENTITY_RADIUS, MSG, ROOM_NAME, ROUNDS, TICK_RATE,
+  type AssignMessage, type KnifeMessage, type ModeId, type RevealMessage, type ShotMessage,
 } from "@whosclaude/shared";
 import { createGameServer } from "../src/app.js";
 import { GameRoom } from "../src/GameRoom.js";
@@ -94,13 +94,14 @@ export interface Player {
   assigns: AssignMessage[];
   shots: ShotMessage[];
   reveals: RevealMessage[];
+  knives: KnifeMessage[];
   /** Tous les messages, dans l'ordre, avec leur type. */
   log: { type: string; message: unknown }[];
 }
 
 export async function join(colyseus: ColyseusTestServer, room: GameRoom, name = "Joueur"): Promise<Player> {
   const clientRoom = await colyseus.connectTo(room, { name });
-  const player: Player = { room: clientRoom, sessionId: clientRoom.sessionId, assigns: [], shots: [], reveals: [], log: [] };
+  const player: Player = { room: clientRoom, sessionId: clientRoom.sessionId, assigns: [], shots: [], reveals: [], knives: [], log: [] };
   const record = <T>(type: string, list: T[]) => (message: T) => {
     list.push(message);
     player.log.push({ type, message });
@@ -108,6 +109,7 @@ export async function join(colyseus: ColyseusTestServer, room: GameRoom, name = 
   clientRoom.onMessage(MSG.assign, record(MSG.assign, player.assigns));
   clientRoom.onMessage(MSG.shot, record(MSG.shot, player.shots));
   clientRoom.onMessage(MSG.reveal, record(MSG.reveal, player.reveals));
+  clientRoom.onMessage(MSG.knife, record(MSG.knife, player.knives));
   // Tout autre type de message est aussi journalisé : un message inattendu doit se voir.
   clientRoom.onMessage("*", (type, message) => player.log.push({ type: String(type), message }));
   return player;
@@ -141,15 +143,15 @@ export function advanceUntil(room: GameRoom, phase: string, maxSeconds = 60) {
 /** Accès aux données privées de la room (jamais synchronisées). */
 export function internals(room: GameRoom) {
   return room as unknown as {
-    roundPlayers: Map<string, { entityId: string; crosshairId: string; alive: boolean; aimX: number; aimY: number }>;
+    roundPlayers: Map<string, { entityId: string; crosshairId: string | null; alive: boolean; aimX: number; aimY: number }>;
     controllers: Map<string, { playerId: string | null }>;
   };
 }
 
 /** Lance un match : tout le monde prêt, l'hôte démarre, on va jusqu'à la manche jouable. */
-export async function startMatch(room: GameRoom, players: Player[], rounds = 1) {
+export async function startMatch(room: GameRoom, players: Player[], rounds = 1, modeId: ModeId = "race") {
   const host = players.find((p) => p.sessionId === room.state.hostId)!;
-  await send(room, host, MSG.settings, { rounds });
+  await send(room, host, MSG.settings, { rounds, modeId });
   for (const p of players) if (p !== host) await send(room, p, MSG.ready, { ready: true });
   await send(room, host, MSG.startMatch);
   advanceUntil(room, "playing");
@@ -166,6 +168,26 @@ export async function shoot(room: GameRoom, shooter: Player, entityId: string) {
     await new Promise((resolve) => setImmediate(resolve));
   }
   await waitFor(() => shooter.shots.length > shotsBefore, "message de tir");
+}
+
+/**
+ * Coup de couteau sur une entité : l'attaquant est d'abord placé juste à côté de sa cible
+ * (manipulation directe de l'état serveur, pour isoler la règle testée du déplacement).
+ */
+export async function stab(room: GameRoom, attacker: Player, targetEntityId: string) {
+  const self = room.state.entities.get(internals(room).roundPlayers.get(attacker.sessionId)!.entityId)!;
+  const target = room.state.entities.get(targetEntityId)!;
+  self.x = target.x + ENTITY_RADIUS * 1.5;
+  self.y = target.y;
+  const before = attacker.knives.length;
+  await send(room, attacker, MSG.stab);
+  await waitFor(() => attacker.knives.length > before, "message de couteau");
+}
+
+/** Élimine une entité avec l'arme du mode en cours (balle ou couteau). */
+export async function eliminate(room: GameRoom, killer: Player, targetEntityId: string) {
+  if (room.state.modeId === "assassins") await stab(room, killer, targetEntityId);
+  else await shoot(room, killer, targetEntityId);
 }
 
 /** Ce qui doit toujours être vrai, quel que soit l'enchaînement d'actions. */

@@ -5,7 +5,7 @@ import { Session } from "./session";
 
 const scene = new GameScene();
 
-new Phaser.Game({
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: "game",
   width: ARENA.width,
@@ -17,3 +17,6 @@ new Phaser.Game({
 });
 
 new Session(scene);
+
+// Débogage en développement uniquement : window.__game dans la console du navigateur.
+if (import.meta.env.DEV) (window as unknown as { __game: Phaser.Game }).__game = game;

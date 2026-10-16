@@ -44,7 +44,21 @@ On gagne en franchissant l'arrivée le premier, ou en étant le dernier joueur e
 En fin de manche, tous les joueurs sont révélés, puis une nouvelle manche se prépare
 avec de nouveaux identifiants et une nouvelle attribution des personnages.
 
+## Mode assassins
+
+Tout le monde (joueurs et PNJ) est dans une salle sombre et se déplace librement dans
+les 8 directions. Chaque joueur a un **couteau** : il tue le personnage le plus proche à
+portée de bras (avec un court temps de recharge). Les PNJ ne frappent jamais : le geste,
+visible de tous, trahit donc un joueur.
+
+Une **lumière d'ambiance** erre dans la pièce. Le geste est dessiné sous l'obscurité :
+bien visible dans la lumière, à peine dans le noir. Mieux vaut frapper dans l'ombre.
+
+Le dernier survivant gagne. Au bout de 2 minutes, la manche s'arrête sans gagnant.
+
 ## Contrôles
+
+**Course**
 
 | Action        | Clavier / souris     | Manette           | Téléphone                 |
 |---------------|----------------------|-------------------|---------------------------|
@@ -52,17 +66,28 @@ avec de nouveaux identifiants et une nouvelle attribution des personnages.
 | Viser         | Souris               | Un des sticks     | Glisser sur le jeu        |
 | Tirer         | Clic gauche ou F     | RB ou X           | Bouton « Tirer »          |
 | Sprinter      | Maj + Espace         | LB ou Y + avancer | Bouton « Sprint » (avance aussi) |
-| Prêt (salon)  | Entrée               | Start             | Bouton du salon           |
+
+**Assassins**
+
+| Action        | Clavier / souris          | Manette      | Téléphone                          |
+|---------------|---------------------------|--------------|------------------------------------|
+| Se déplacer   | Flèches, ZQSD ou WASD     | Stick gauche | Glisser sur le jeu (joystick)      |
+| Couteau       | Espace, E ou clic gauche  | A, RB ou X   | Bouton « Couteau »                 |
+
+**Partout** : Entrée / Start pour se déclarer prêt dans le salon.
 
 Les inputs passent par une couche d'abstraction (`client/src/input/`) : chaque
-périphérique est une `InputSource` qui produit des intentions (avancer, viser, tirer…),
-fusionnées par l'`InputManager`. Ajouter un périphérique = écrire une nouvelle source.
+périphérique est une `InputSource` qui produit des intentions (avancer, se déplacer,
+viser, tirer, action…), fusionnées par l'`InputManager`. `InputSender` retient ensuite
+celles qui comptent dans le mode en cours. Ajouter un périphérique = écrire une nouvelle
+source ; ajouter un mode = déclarer ses contrôles dans `InputSender`.
 
 ## Structure
 
 - `shared/` : constantes, règles de déplacement et messages réseau communs.
 - `server/` : room Colyseus autoritaire (joueurs, viseurs, tirs, cycle de manche) et `modes/` (règles, IA des PNJ, victoire).
-- `client/` : rendu Phaser, couche d'inputs, envoi des intentions et interpolation.
+- `client/` : rendu Phaser, couche d'inputs, envoi des intentions et interpolation ;
+  `client/src/modes/` : décor et consignes de chaque mode.
 
 ## Règle d'or : joueurs et PNJ indiscernables
 

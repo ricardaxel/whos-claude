@@ -1,6 +1,6 @@
 import { Client, Room, ServerError } from "colyseus";
 import {
-  AIM, ARENA, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
+  AIM, ARENA, ASSASSINS, type KnifeMessage, AssignMessage, clampToArena, COUNTDOWN_SECONDS, DEFAULT_MODE, Dir, FireMessage, IDLE,
   AimMessage, isDir, isModeId, MoveMessage, JoinOptions, MAX_PLAYERS, MSG, Phase, PODIUM_SECONDS, ReadyMessage,
   RESULTS_SECONDS, RevealMessage, ROUNDS, sanitizeName, SettingsMessage, ShotMessage, SPEED, step, TICK_RATE,
   CROSSHAIR_COLORS,
@@ -24,12 +24,15 @@ interface Controller extends NpcBrain {
 /** Ce qu'un joueur contrôle pendant la manche en cours. Jamais synchronisé. */
 interface RoundPlayer {
   entityId: string;
-  crosshairId: string;
+  /** Viseur du joueur, ou null si le mode n'en a pas. */
+  crosshairId: string | null;
   aimX: number;
   aimY: number;
   alive: boolean;
   /** Tir demandé : la visée est verrouillée jusqu'à ce que le viseur atteigne sa cible. */
   firing: boolean;
+  /** Instant (horloge de manche) à partir duquel le couteau est de nouveau utilisable. */
+  knifeReadyAt: number;
 }
 
 /**
@@ -51,6 +54,10 @@ export class GameRoom extends Room<GameState> {
   private controllers = new Map<string, Controller>();
   private roundPlayers = new Map<string, RoundPlayer>();
   private phaseTimer = 0;
+  /** Secondes écoulées depuis le début de la phase de jeu de la manche. */
+  private roundClock = 0;
+  /** Secondes restantes avant la fin forcée de la manche (si le mode a une limite). */
+  private roundRemaining = 0;
 
   onCreate() {
     // Le code de la room sert directement d'identifiant : on rejoint avec joinById(code).
@@ -90,9 +97,17 @@ export class GameRoom extends Room<GameState> {
       if (player && !player.firing) this.setAim(player, message?.aimX, message?.aimY);
     });
 
+    this.onMessage(MSG.stab, (client) => {
+      const player = this.roundPlayers.get(client.sessionId);
+      if (!player?.alive || !this.mode.knife || this.state.phase !== "playing") return;
+      if (this.roundClock < player.knifeReadyAt) return;
+      player.knifeReadyAt = this.roundClock + ASSASSINS.knifeCooldown;
+      this.stab(player);
+    });
+
     this.onMessage(MSG.fire, (client, message: FireMessage) => {
       const player = this.roundPlayers.get(client.sessionId);
-      const crosshair = player && this.state.crosshairs.get(player.crosshairId);
+      const crosshair = player?.crosshairId ? this.state.crosshairs.get(player.crosshairId) : undefined;
       if (!player?.alive || !crosshair?.loaded || player.firing || this.state.phase !== "playing") return;
       this.setAim(player, message?.aimX, message?.aimY);
       player.firing = true;
@@ -134,7 +149,7 @@ export class GameRoom extends Room<GameState> {
     const player = this.roundPlayers.get(client.sessionId);
     if (!player) return;
     this.roundPlayers.delete(client.sessionId);
-    this.state.crosshairs.delete(player.crosshairId);
+    if (player.crosshairId) this.state.crosshairs.delete(player.crosshairId);
     // L'entité redevient un PNJ et continue sa vie.
     const controller = this.controllers.get(player.entityId)!;
     controller.playerId = null;
@@ -176,6 +191,10 @@ export class GameRoom extends Room<GameState> {
     this.state.round++;
     for (const position of this.mode.spawnPositions()) this.spawnEntity(position.x, position.y);
     for (const client of this.clients) this.addRoundPlayer(client);
+    this.mode.startRound?.(this.state);
+    this.roundClock = 0;
+    this.roundRemaining = this.mode.roundSeconds;
+    this.state.timeLeft = Math.ceil(this.roundRemaining);
     this.setPhase("countdown", COUNTDOWN_SECONDS);
   }
 
@@ -184,6 +203,8 @@ export class GameRoom extends Room<GameState> {
     this.state.crosshairs.clear();
     this.controllers.clear();
     this.roundPlayers.clear();
+    this.state.light.radius = 0;
+    this.state.timeLeft = 0;
   }
 
   private endRound(winnerEntityId: string | null) {
@@ -209,14 +230,18 @@ export class GameRoom extends Room<GameState> {
     switch (this.state.phase) {
       case "countdown":
         this.moveCrosshairs(dt);
+        this.mode.updateWorld?.(this.state, dt);
         this.phaseTimer -= dt;
         this.state.countdown = Math.max(0, Math.ceil(this.phaseTimer));
         if (this.phaseTimer <= 0) this.setPhase("playing", 0);
         break;
       case "playing":
+        this.roundClock += dt;
         this.moveCrosshairs(dt);
+        this.mode.updateWorld?.(this.state, dt);
         this.moveEntities(dt);
         this.checkEndOfRound();
+        if (this.state.phase === "playing") this.updateRoundTimer(dt);
         break;
       case "roundEnd":
         this.phaseTimer -= dt;
@@ -240,6 +265,14 @@ export class GameRoom extends Room<GameState> {
 
   // --- Manche ---
 
+  /** Limite de temps du mode : à zéro, la manche s'arrête sans gagnant. */
+  private updateRoundTimer(dt: number) {
+    if (this.mode.roundSeconds <= 0) return;
+    this.roundRemaining -= dt;
+    this.state.timeLeft = Math.max(0, Math.ceil(this.roundRemaining));
+    if (this.roundRemaining <= 0) this.endRound(null);
+  }
+
   private addRoundPlayer(client: Client) {
     // Le joueur prend le contrôle d'un PNJ vivant : aucune entité n'apparaît,
     // donc rien dans le flux réseau ne trahit son arrivée.
@@ -251,15 +284,18 @@ export class GameRoom extends Room<GameState> {
     controller.input = this.state.entities.get(entityId)!.dir as Dir;
     controller.sprint = false;
 
-    const crosshairId = randomId();
-    const crosshair = new Crosshair();
-    crosshair.x = ARENA.width / 2;
-    crosshair.y = ARENA.height / 2;
-    crosshair.color = this.state.players.get(client.sessionId)?.color ?? 0;
-    this.state.crosshairs.set(crosshairId, crosshair);
+    let crosshairId: string | null = null;
+    if (this.mode.crosshairs) {
+      crosshairId = randomId();
+      const crosshair = new Crosshair();
+      crosshair.x = ARENA.width / 2;
+      crosshair.y = ARENA.height / 2;
+      crosshair.color = this.state.players.get(client.sessionId)?.color ?? 0;
+      this.state.crosshairs.set(crosshairId, crosshair);
+    }
 
     this.roundPlayers.set(client.sessionId, {
-      entityId, crosshairId, aimX: crosshair.x, aimY: crosshair.y, alive: true, firing: false,
+      entityId, crosshairId, aimX: ARENA.width / 2, aimY: ARENA.height / 2, alive: true, firing: false, knifeReadyAt: 0,
     });
     const message: AssignMessage = { entityId, crosshairId };
     client.send(MSG.assign, message);
@@ -279,7 +315,7 @@ export class GameRoom extends Room<GameState> {
   private moveCrosshairs(dt: number) {
     const maxStep = AIM.speed * dt;
     for (const player of this.roundPlayers.values()) {
-      const crosshair = this.state.crosshairs.get(player.crosshairId);
+      const crosshair = player.crosshairId ? this.state.crosshairs.get(player.crosshairId) : undefined;
       if (!crosshair) continue;
       const dx = player.aimX - crosshair.x;
       const dy = player.aimY - crosshair.y;
@@ -318,7 +354,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private fire(shooter: RoundPlayer) {
-    const crosshair = this.state.crosshairs.get(shooter.crosshairId);
+    const crosshair = shooter.crosshairId ? this.state.crosshairs.get(shooter.crosshairId) : undefined;
     if (!shooter.alive || !crosshair?.loaded) return;
     crosshair.loaded = false;
 
@@ -331,24 +367,38 @@ export class GameRoom extends Room<GameState> {
     });
     const targetId = inRange.sort((a, b) => a.distance - b.distance)[0]?.id;
 
-    let victim: ShotMessage["victim"] = null;
-    if (targetId) {
-      const target = this.state.entities.get(targetId)!;
-      target.alive = false;
-      target.dir = IDLE;
-      const victimId = this.controllers.get(targetId)!.playerId;
-      const victimPlayer = victimId ? this.roundPlayers.get(victimId) : undefined;
-      if (victimPlayer) {
-        victimPlayer.alive = false;
-        this.state.crosshairs.delete(victimPlayer.crosshairId);
-        victim = "player";
-      } else {
-        victim = "npc";
+    const message: ShotMessage = { x: crosshair.x, y: crosshair.y, victim: targetId ? this.kill(targetId) : null };
+    this.broadcast(MSG.shot, message);
+  }
+
+  /** Coup de couteau : le personnage vivant le plus proche à portée de bras (jamais soi-même). */
+  private stab(attacker: RoundPlayer) {
+    const self = this.state.entities.get(attacker.entityId)!;
+    let targetId: string | null = null;
+    let best: number = ASSASSINS.knifeRange;
+    for (const [id, entity] of this.state.entities) {
+      if (!entity.alive || id === attacker.entityId) continue;
+      const distance = Math.hypot(entity.x - self.x, entity.y - self.y);
+      if (distance <= best) {
+        best = distance;
+        targetId = id;
       }
     }
+    const message: KnifeMessage = { entityId: attacker.entityId, victim: targetId ? this.kill(targetId) : null };
+    this.broadcast(MSG.knife, message);
+  }
 
-    const message: ShotMessage = { x: crosshair.x, y: crosshair.y, victim };
-    this.broadcast(MSG.shot, message);
+  /** Élimine une entité ; renvoie s'il s'agissait d'un joueur ou d'un PNJ. */
+  private kill(targetId: string): "player" | "npc" {
+    const target = this.state.entities.get(targetId)!;
+    target.alive = false;
+    target.dir = IDLE;
+    const victimId = this.controllers.get(targetId)!.playerId;
+    const victimPlayer = victimId ? this.roundPlayers.get(victimId) : undefined;
+    if (!victimPlayer) return "npc";
+    victimPlayer.alive = false;
+    if (victimPlayer.crosshairId) this.state.crosshairs.delete(victimPlayer.crosshairId);
+    return "player";
   }
 
   private checkEndOfRound() {

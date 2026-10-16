@@ -1,10 +1,12 @@
 import { MAX_PLAYERS, type ModeId } from "@whosclaude/shared";
 import type { GameMode } from "./GameMode.js";
+import { AssassinsMode } from "./AssassinsMode.js";
 import { RaceMode } from "./RaceMode.js";
 
 /** Un mode par entrée de `MODES` (shared) : le compilateur vérifie qu'aucun ne manque. */
 export const MODE_FACTORIES: Record<ModeId, () => GameMode> = {
   race: () => new RaceMode(),
+  assassins: () => new AssassinsMode(),
 };
 
 export function createMode(id: ModeId): GameMode {

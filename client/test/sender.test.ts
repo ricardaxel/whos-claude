@@ -5,7 +5,7 @@ import { InputSender, type Outgoing } from "../src/input/InputSender";
 import type { InputFrame } from "../src/input/types";
 
 function frame(overrides: Partial<InputFrame> = {}): InputFrame {
-  return { advance: false, sprint: false, fire: false, start: false, aim: { x: 480, y: 320 }, ...overrides };
+  return { advance: false, sprint: false, move: { x: 0, y: 0 }, action: false, fire: false, start: false, aim: { x: 480, y: 320 }, ...overrides };
 }
 
 const types = (out: Outgoing[]) => out.map((o) => o.type);
@@ -89,5 +89,33 @@ describe("InputSender", () => {
         }
       }),
     );
+  });
+});
+
+describe("InputSender en mode assassins", () => {
+  it("le déplacement libre donne une des 8 directions, sans sprint", () => {
+    const cases: [number, number, number][] = [
+      [1, 0, 0], [1, 1, 1], [0, 1, 2], [-1, 1, 3], [-1, 0, 4], [-1, -1, 5], [0, -1, 6], [1, -1, 7], [0.2, -0.1, IDLE],
+    ];
+    for (const [x, y, dir] of cases) {
+      const sender = new InputSender();
+      const out = sender.update(frame({ move: { x, y }, sprint: true, advance: true }), "playing", 0, "assassins");
+      const moves = out.filter((o) => o.type === MSG.move);
+      if (dir === IDLE) expect(moves).toEqual([]);
+      else expect(moves).toEqual([{ type: MSG.move, message: { dir, sprint: false } }]);
+    }
+  });
+
+  it("l'action (ou le bouton de tir) poignarde ; ni visée ni tir à distance", () => {
+    const sender = new InputSender();
+    expect(types(sender.update(frame({ action: true, aim: { x: 1, y: 2 } }), "playing", 0, "assassins"))).toEqual([MSG.stab]);
+    expect(types(sender.update(frame({ fire: true, aim: { x: 5, y: 5 } }), "playing", 100, "assassins"))).toEqual([MSG.stab]);
+    expect(sender.update(frame({ aim: { x: 9, y: 9 } }), "playing", 200, "assassins")).toEqual([]);
+  });
+
+  it("en course, l'action ne poignarde pas", () => {
+    const sender = new InputSender();
+    sender.update(frame(), "playing", 0, "race");
+    expect(types(sender.update(frame({ action: true }), "playing", 10, "race"))).not.toContain(MSG.stab);
   });
 });

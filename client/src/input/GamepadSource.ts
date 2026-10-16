@@ -11,6 +11,7 @@ const BTN = { A: 0, X: 2, Y: 3, LB: 4, RB: 5, RT: 7, START: 9 } as const;
 /**
  * Manette : un stick (au choix) pour viser, RT ou A pour avancer,
  * RB ou X pour tirer, Start pour être prêt, LB ou Y (maintenu) pour sprinter.
+ * Déplacement libre : stick gauche. Action (couteau) : A.
  */
 export class GamepadSource implements InputSource {
   private previous = new Map<number, boolean[]>();
@@ -33,6 +34,8 @@ export class GamepadSource implements InputSource {
       frame.sprint ||= pressed[BTN.LB] || pressed[BTN.Y];
       frame.fire ||= justPressed(BTN.RB) || justPressed(BTN.X);
       frame.start ||= justPressed(BTN.START);
+      frame.action ||= justPressed(BTN.A);
+      if (pad.leftStick.length() >= DEADZONE) frame.move = { x: pad.leftStick.x, y: pad.leftStick.y };
 
       for (const stick of [pad.leftStick, pad.rightStick]) {
         if (stick.length() < DEADZONE) continue;

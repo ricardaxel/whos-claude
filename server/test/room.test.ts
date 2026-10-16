@@ -147,7 +147,7 @@ describe("manche", () => {
     const a = await join(ctx.colyseus, room);
     await startMatch(room, [a]);
     const entity = room.state.entities.get(a.assigns[0].entityId)!;
-    const crosshair = room.state.crosshairs.get(a.assigns[0].crosshairId)!;
+    const crosshair = room.state.crosshairs.get(a.assigns[0].crosshairId!)!;
     const aimBefore = { ...internals(room).roundPlayers.get(a.sessionId)! };
 
     // Un move, même accompagné de champs de visée, ne touche pas au viseur.
@@ -201,7 +201,7 @@ describe("manche", () => {
     await shoot(room, a, a.assigns[0].entityId);
     expect(self.alive).toBe(true);
     expect(a.shots.at(-1)!.victim).not.toBe("player");
-    expect(room.state.crosshairs.get(a.assigns[0].crosshairId)!.loaded).toBe(false);
+    expect(room.state.crosshairs.get(a.assigns[0].crosshairId!)!.loaded).toBe(false);
 
     const other = room.state.entities.get(b.assigns[0].entityId)!;
     await send(room, a, MSG.fire, { aimX: other.x, aimY: other.y });
@@ -221,7 +221,7 @@ describe("manche", () => {
     await waitFor(() => a.reveals.length === 1, "révélation");
 
     expect(target.alive).toBe(false);
-    expect(room.state.crosshairs.has(b.assigns[0].crosshairId)).toBe(false);
+    expect(room.state.crosshairs.has(b.assigns[0].crosshairId!)).toBe(false);
     expect(room.state.players.get(a.sessionId)!.score).toBe(1);
     expect(a.shots.at(-1)!.victim).toBe("player");
     expect(a.reveals[0].winnerPlayerId).toBe(a.sessionId);

@@ -90,6 +90,11 @@ export const MODES = {
     name: "Course",
     description: "Une seule touche pour avancer, une seule balle. Premier à l'arrivée ou dernier survivant.",
   },
+  assassins: {
+    id: "assassins",
+    name: "Assassins",
+    description: "Une salle sombre, un couteau chacun. Le coup de couteau se voit : frappez hors de la lumière. Dernier survivant.",
+  },
 } as const satisfies Record<string, ModeInfo>;
 
 export type ModeId = keyof typeof MODES;
@@ -110,6 +115,20 @@ export const RACE = {
    * sprinte se trahit aussitôt, en échange d'une arrivée plus rapide.
    */
   sprintMultiplier: 1.8,
+} as const;
+
+// --- Mode assassins ---
+
+export const ASSASSINS = {
+  entityCount: 24,
+  /** Distance max (centre à centre) pour un coup de couteau. */
+  knifeRange: ENTITY_RADIUS * 2.5,
+  /** Délai minimal entre deux coups de couteau d'un même joueur (s). */
+  knifeCooldown: 0.8,
+  /** Durée max d'une manche (s) : au-delà, personne ne gagne. */
+  roundSeconds: 120,
+  /** Lumière d'ambiance qui erre dans la pièce. */
+  light: { radius: 150, speed: 55 },
 } as const;
 
 // --- Viseurs ---
@@ -174,6 +193,13 @@ export interface PlayerInfoState {
 
 export const PLAYER_INFO_FIELDS = ["name", "color", "ready", "score"] as const satisfies readonly (keyof PlayerInfoState)[];
 
+/** Lumière d'ambiance ; radius = 0 : pas d'obscurité (pièce éclairée). */
+export interface LightState {
+  x: number;
+  y: number;
+  radius: number;
+}
+
 export interface GameStateShape {
   phase: Phase;
   countdown: number;
@@ -181,6 +207,9 @@ export interface GameStateShape {
   modeId: ModeId;
   totalRounds: number;
   round: number;
+  /** Secondes restantes dans la manche, 0 si le mode n'a pas de limite. */
+  timeLeft: number;
+  light: LightState;
   players: ReadonlyMapLike<PlayerInfoState>;
   entities: ReadonlyMapLike<EntityState>;
   crosshairs: ReadonlyMapLike<CrosshairState>;
@@ -223,7 +252,17 @@ export interface FireMessage {
 /** Serveur → un seul client : ce qu'il contrôle. Jamais diffusé aux autres. */
 export interface AssignMessage {
   entityId: string;
-  crosshairId: string;
+  /** Viseur du joueur, ou null si le mode n'en a pas. */
+  crosshairId: string | null;
+}
+
+/**
+ * Serveur → tous : un coup de couteau. L'animation est visible de tous (c'est elle qui
+ * trahit un joueur), plus ou moins selon que la scène est dans la lumière ou dans le noir.
+ */
+export interface KnifeMessage {
+  entityId: string;
+  victim: "player" | "npc" | null;
 }
 
 /** Serveur → tous : un tir a eu lieu. */
@@ -266,7 +305,9 @@ export const MSG = {
   move: "move",
   aim: "aim",
   fire: "fire",
+  stab: "stab",
   assign: "assign",
+  knife: "knife",
   shot: "shot",
   reveal: "reveal",
 } as const;

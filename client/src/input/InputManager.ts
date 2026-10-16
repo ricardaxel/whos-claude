@@ -16,11 +16,18 @@ export class InputManager {
   }
 
   read(dt: number): InputFrame {
-    const frame: InputFrame = { advance: false, sprint: false, fire: false, start: false, aim: this.aim };
+    const frame: InputFrame = {
+      advance: false, sprint: false, move: { x: 0, y: 0 }, action: false, fire: false, start: false, aim: this.aim,
+    };
     for (const source of this.sources) {
       const s = source.read(dt);
       frame.advance ||= !!s.advance;
       frame.sprint ||= !!s.sprint;
+      frame.action ||= !!s.action;
+      if (s.move) {
+        frame.move.x = clampAxis(frame.move.x + s.move.x);
+        frame.move.y = clampAxis(frame.move.y + s.move.y);
+      }
       frame.fire ||= !!s.fire;
       frame.start ||= !!s.start;
       if (s.aimAt) this.aim = clampToArena(s.aimAt.x, s.aimAt.y);
@@ -33,4 +40,9 @@ export class InputManager {
   destroy() {
     for (const source of this.sources) source.destroy?.();
   }
+}
+
+/** Plusieurs sources peuvent pousser dans le même sens : on reste entre -1 et 1. */
+function clampAxis(value: number) {
+  return Number.isFinite(value) ? Math.max(-1, Math.min(1, value)) : 0;
 }

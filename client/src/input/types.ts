@@ -7,6 +7,10 @@ export interface SourceFrame {
   advance?: boolean;
   /** Sprint maintenu : plus rapide, mais réservé aux joueurs (les PNJ ne sprintent jamais). */
   sprint?: boolean;
+  /** Déplacement libre voulu, chaque axe entre -1 et 1 (flèches/ZQSD, stick, joystick tactile). */
+  move?: { x: number; y: number };
+  /** Action du mode (coup de couteau…), front montant. */
+  action?: boolean;
   /** Appuyé pendant cette frame (front montant). */
   fire?: boolean;
   start?: boolean;
@@ -26,6 +30,8 @@ export interface InputSource {
 export interface InputFrame {
   advance: boolean;
   sprint: boolean;
+  move: { x: number; y: number };
+  action: boolean;
   fire: boolean;
   start: boolean;
   aim: { x: number; y: number };

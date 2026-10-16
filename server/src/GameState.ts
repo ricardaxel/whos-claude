@@ -1,7 +1,8 @@
 import { MapSchema, Schema, type } from "@colyseus/schema";
 import {
   DEFAULT_MODE, ROUNDS,
-  type CrosshairState, type EntityState, type GameStateShape, type ModeId, type Phase, type PlayerInfoState,
+  type CrosshairState, type EntityState, type GameStateShape, type LightState, type ModeId, type Phase,
+  type PlayerInfoState,
 } from "@whosclaude/shared";
 
 /**
@@ -34,6 +35,13 @@ export class PlayerInfo extends Schema implements PlayerInfoState {
   @type("uint8") score = 0;
 }
 
+/** Lumière d'ambiance du mode (radius = 0 : pas d'obscurité). */
+export class Light extends Schema implements LightState {
+  @type("float32") x = 0;
+  @type("float32") y = 0;
+  @type("uint16") radius = 0;
+}
+
 export class GameState extends Schema implements GameStateShape {
   @type("string") phase: Phase = "lobby";
   @type("uint8") countdown = 0;
@@ -43,6 +51,8 @@ export class GameState extends Schema implements GameStateShape {
   @type("string") modeId: ModeId = DEFAULT_MODE;
   @type("uint8") totalRounds: number = ROUNDS.default;
   @type("uint8") round = 0;
+  @type("uint16") timeLeft = 0;
+  @type(Light) light = new Light();
   @type({ map: PlayerInfo }) players = new MapSchema<PlayerInfo>();
 
   // Manche en cours
