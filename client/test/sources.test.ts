@@ -256,3 +256,19 @@ describe("TouchSource", () => {
     expect(input.count()).toBe(0);
   });
 });
+
+describe("relâcher les sources (perte de focus)", () => {
+  beforeEach(loadPage);
+
+  it("TouchSource oublie les boutons maintenus et le joystick, même sans pointercancel", () => {
+    const { scene, input } = fakeScene();
+    const source = new TouchSource(scene);
+    document.getElementById("touch-advance")!.dispatchEvent(new Event("pointerdown"));
+    input.emit("pointerdown", pointer({ wasTouch: true, worldX: 100, worldY: 100 }));
+    input.emit("pointermove", pointer({ wasTouch: true, worldX: 200, worldY: 100 }));
+    expect(source.read()).toMatchObject({ advance: true, move: { x: 1, y: 0 } });
+
+    source.release();
+    expect(source.read()).toMatchObject({ advance: false, sprint: false, move: { x: 0, y: 0 } });
+  });
+});

@@ -340,9 +340,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private releaseInputs() {
-    const room = this.room;
-    if (!room) return;
-    for (const { type, message } of this.sender.release()) room.send(type, message);
+    this.inputs.release();
+    const outgoing = this.sender.release();
+    const phase = this.room?.state.phase;
+    // Hors manche, le serveur n'attend aucune direction : on se contente de tout remettre à zéro.
+    if (!this.room || (phase !== "countdown" && phase !== "playing")) return;
+    for (const { type, message } of outgoing) this.room.send(type, message);
   }
 
   private sendInputs(frame: InputFrame, time: number) {

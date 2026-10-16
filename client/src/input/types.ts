@@ -23,6 +23,8 @@ export interface SourceFrame {
 export interface InputSource {
   /** Appelé une fois par frame ; les fronts montants sont consommés à la lecture. */
   read(dt: number): SourceFrame;
+  /** La page perd le focus : oublier tout ce qui est « maintenu » (l'OS n'en préviendra pas toujours). */
+  release?(): void;
   destroy?(): void;
 }
 

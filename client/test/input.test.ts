@@ -103,3 +103,13 @@ describe("InputManager : déplacement libre et action", () => {
     expect(inputs.read(0.016).action).toBe(false);
   });
 });
+
+describe("InputManager.release", () => {
+  it("relâche chaque source qui sait le faire", () => {
+    const released: string[] = [];
+    const a = Object.assign(new FakeSource(), { release: () => released.push("a") });
+    const b = new FakeSource(); // pas de release : ignorée sans erreur
+    new InputManager([a, b]).release();
+    expect(released).toEqual(["a"]);
+  });
+});

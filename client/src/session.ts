@@ -26,6 +26,11 @@ export class Session {
 
   private room?: GameRoom;
   private leavingOnPurpose = false;
+  /**
+   * Numéro de la tentative de connexion en cours : créer ou rejoindre une partie depuis
+   * l'accueil annule une boucle de reconnexion encore active (une seule room à la fois).
+   */
+  private attempt = 0;
   private home: HomeScreen;
   private lobby: LobbyScreen;
   private podium = new PodiumScreen();
@@ -42,6 +47,7 @@ export class Session {
   }
 
   private async enter(pending: Promise<GameRoom>) {
+    this.attempt++;
     this.attachRoom(await pending);
   }
 
@@ -95,17 +101,23 @@ export class Session {
 
     // Coupure involontaire (écran verrouillé, wifi…) : on tente de reprendre sa place.
     if (!this.leavingOnPurpose && code !== CONSENTED_LEAVE && token) {
+      const attempt = ++this.attempt;
+      const cancelled = () => attempt !== this.attempt;
       showScreen("home");
       this.home.show("Connexion perdue… reconnexion en cours");
       for (const delay of Session.reconnectDelaysMs) {
         await new Promise((resolve) => setTimeout(resolve, delay));
+        if (cancelled()) return; // le joueur a créé ou rejoint une autre partie entre-temps
         try {
-          this.attachRoom(await reconnectRoom(token));
+          const room = await reconnectRoom(token);
+          if (cancelled()) return void room.leave(); // retrouvée trop tard : on la quitte
+          this.attachRoom(room);
           return;
         } catch {
           // la partie n'est pas encore joignable : on réessaie
         }
       }
+      if (cancelled()) return;
     }
 
     history.replaceState(null, "", location.pathname);

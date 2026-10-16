@@ -181,12 +181,15 @@ export class GameRoom extends Room<GameState> {
       return false; // délai écoulé : départ définitif
     }
     autopilot(false);
-    // Revenu : on lui rend son personnage, ou on lui en confie un si une manche a commencé entre-temps.
+    // Revenu : on lui rend son personnage. Si une nouvelle manche a démarré pendant la coupure,
+    // il en reçoit un pendant le compte à rebours ; en pleine manche, il regarde jusqu'à la
+    // suivante (un PNJ à deux pas de l'arrivée serait une victoire offerte, et un viseur qui
+    // apparaît en pleine partie trahirait son retour).
     const player = this.roundPlayers.get(back.sessionId);
     if (player) {
       const message: AssignMessage = { entityId: player.entityId, crosshairId: player.crosshairId };
       back.send(MSG.assign, message);
-    } else if (this.state.phase === "countdown" || this.state.phase === "playing") {
+    } else if (this.state.phase === "countdown") {
       this.addRoundPlayer(back);
     }
     return true;

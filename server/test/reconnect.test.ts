@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { MSG } from "@whosclaude/shared";
 import { GameRoom } from "../src/GameRoom.js";
-import { advance, createRoom, internals, join, send, startMatch, useTestServer, waitFor, type Player } from "./helpers.js";
+import { advance, advanceUntil, createRoom, internals, join, send, startMatch, useTestServer, waitFor, type Player } from "./helpers.js";
 
 const ctx = useTestServer();
 const DEFAULT_DELAY = GameRoom.reconnectionSeconds;
@@ -128,5 +128,48 @@ describe("salon : être prêt engage sur les réglages", () => {
     await send(room, guest, MSG.ready, { ready: true });
     await send(room, host, MSG.settings, { rounds: 7 });
     expect(room.state.players.get(guest.sessionId)!.ready).toBe(false);
+  });
+});
+
+describe("retour après le démarrage d'une nouvelle manche", () => {
+  /** Course à 3 manches ; c se coupe en fin de manche 1 et la manche 2 démarre sans lui. */
+  async function cutDuringRoundEnd() {
+    const room = await createRoom(ctx.colyseus);
+    const [a, c] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+    await startMatch(room, [a, c], 3);
+    await send(room, a, MSG.move, { dir: 0 });
+    advanceUntil(room, "roundEnd", 20);
+    const token = dropConnection(c);
+    await waitFor(() => room.clients.length === 1, "déconnexion vue par le serveur");
+    advanceUntil(room, "countdown", 10);
+    expect(room.state.round).toBe(2);
+    expect(internals(room).roundPlayers.has(c.sessionId)).toBe(false); // absent au démarrage de la manche
+    return { room, a, c, token };
+  }
+
+  it("revenu pendant le compte à rebours : il reçoit un personnage vivant", async () => {
+    const { room, c, token } = await cutDuringRoundEnd();
+    await reconnect(c, token);
+    await waitFor(() => c.assigns.length === 2, "attribution de la nouvelle manche");
+    const entity = room.state.entities.get(c.assigns[1].entityId)!;
+    expect(entity.alive).toBe(true);
+    expect(internals(room).roundPlayers.get(c.sessionId)!.entityId).toBe(c.assigns[1].entityId);
+  });
+
+  it("revenu en pleine manche : il regarde, puis joue la manche suivante", async () => {
+    const { room, a, c, token } = await cutDuringRoundEnd();
+    advanceUntil(room, "playing", 5);
+    await reconnect(c, token);
+    await waitFor(() => room.clients.length === 2, "retour vu par le serveur");
+    advance(room, 0.5);
+    expect(c.assigns).toHaveLength(1); // pas de personnage en cours de manche
+    expect(internals(room).roundPlayers.has(c.sessionId)).toBe(false);
+
+    await send(room, a, MSG.move, { dir: 0 });
+    advanceUntil(room, "roundEnd", 20);
+    advanceUntil(room, "countdown", 10);
+    expect(room.state.round).toBe(3);
+    await waitFor(() => c.assigns.length === 2, "attribution de la manche suivante");
+    expect(internals(room).roundPlayers.has(c.sessionId)).toBe(true);
   });
 });

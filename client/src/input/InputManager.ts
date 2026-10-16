@@ -37,6 +37,11 @@ export class InputManager {
     return frame;
   }
 
+  /** Relâche tout ce que les sources considèrent comme maintenu. */
+  release() {
+    for (const source of this.sources) source.release?.();
+  }
+
   destroy() {
     for (const source of this.sources) source.destroy?.();
   }

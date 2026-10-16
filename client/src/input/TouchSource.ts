@@ -52,6 +52,16 @@ export class TouchSource implements InputSource {
     return frame;
   }
 
+  /**
+   * Certains Android ne livrent aucun pointercancel quand l'appli passe en arrière-plan :
+   * sans ça, « Avancer » resterait enfoncé et le personnage repartirait au retour.
+   */
+  release() {
+    this.held = { advance: false, sprint: false };
+    this.stick = undefined;
+    this.lastDrag.clear();
+  }
+
   destroy() {
     for (const cleanup of this.cleanups) cleanup();
     this.scene.input.off("pointerdown", this.onPointerDown);

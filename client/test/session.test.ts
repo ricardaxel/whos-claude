@@ -118,3 +118,49 @@ describe("Session", () => {
     expect(location.search).toBe("");
   });
 });
+
+describe("Session : reconnexion et nouvelle partie", () => {
+  beforeEach(() => {
+    loadPage();
+    history.replaceState(null, "", "/");
+    vi.clearAllMocks();
+  });
+
+  it("créer une partie pendant la reconnexion l'annule : une seule room reste attachée", async () => {
+    Session.reconnectDelaysMs = [30, 30];
+    const { room, fakeScene } = await startSession();
+    const recovered = fakeRoom("ABCD");
+    net.reconnectRoom.mockResolvedValue(recovered);
+
+    room.drop();
+    const fresh = fakeRoom("WXYZ");
+    net.createRoom.mockResolvedValueOnce(fresh);
+    document.getElementById("home-create")!.click(); // pendant la première attente
+    await flush();
+    await new Promise((resolve) => setTimeout(resolve, 100)); // la boucle aurait eu le temps de finir
+
+    expect(fakeScene.attach).toHaveBeenCalledTimes(2); // la première room, puis la nouvelle
+    expect(fakeScene.attach).toHaveBeenLastCalledWith(fresh, expect.anything());
+    expect(net.reconnectRoom).not.toHaveBeenCalled();
+    expect(location.search).toBe("?room=WXYZ");
+  });
+
+  it("une room retrouvée trop tard est quittée au lieu d'être attachée", async () => {
+    Session.reconnectDelaysMs = [0];
+    const { room, fakeScene } = await startSession();
+    let resolveReconnect!: (value: unknown) => void;
+    const recovered = fakeRoom("ABCD");
+    net.reconnectRoom.mockReturnValueOnce(new Promise((resolve) => (resolveReconnect = resolve)));
+
+    room.drop();
+    await vi.waitFor(() => expect(net.reconnectRoom).toHaveBeenCalled());
+    net.createRoom.mockResolvedValueOnce(fakeRoom("WXYZ"));
+    document.getElementById("home-create")!.click();
+    await flush();
+    resolveReconnect(recovered);
+    await flush();
+
+    expect(recovered.leave).toHaveBeenCalled();
+    expect(fakeScene.attach).toHaveBeenCalledTimes(2);
+  });
+});
