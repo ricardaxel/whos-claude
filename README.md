@@ -51,7 +51,7 @@ avec de nouveaux identifiants et une nouvelle attribution des personnages.
 | Avancer       | Espace, → ou D       | RT ou A           | Bouton « Avancer »        |
 | Viser         | Souris               | Un des sticks     | Glisser sur le jeu        |
 | Tirer         | Clic gauche ou F     | RB ou X           | Bouton « Tirer »          |
-| Sprinter      | Maj + Espace         | LB ou Y + avancer | Bouton « Sprint » + « Avancer » |
+| Sprinter      | Maj + Espace         | LB ou Y + avancer | Bouton « Sprint » (avance aussi) |
 | Prêt (salon)  | Entrée               | Start             | Bouton du salon           |
 
 Les inputs passent par une couche d'abstraction (`client/src/input/`) : chaque

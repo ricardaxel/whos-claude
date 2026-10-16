@@ -8,6 +8,9 @@ const DRAG_GAIN = 1.6;
  * Téléphone : boutons à l'écran (#touch-controls dans index.html) pour avancer,
  * sprinter et tirer. Glisser un doigt sur le jeu déplace le viseur
  * comme sur un trackpad, pour que le doigt ne cache pas la cible.
+ *
+ * « Sprint » fait aussi avancer : le pouce gauche choisit entre marcher et sprinter,
+ * le pouce droit reste libre pour viser et tirer (deux pouces suffisent).
  */
 export class TouchSource implements InputSource {
   private held = { advance: false, sprint: false };
@@ -26,7 +29,11 @@ export class TouchSource implements InputSource {
   }
 
   read(): SourceFrame {
-    const frame: SourceFrame = { ...this.pending, ...this.held };
+    const frame: SourceFrame = {
+      ...this.pending,
+      advance: this.held.advance || this.held.sprint,
+      sprint: this.held.sprint,
+    };
     this.pending = {};
     return frame;
   }
