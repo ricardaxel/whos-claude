@@ -516,19 +516,26 @@ export class GameRoom extends Room<GameState> {
   }
 
   private checkEndOfRound() {
-    // Appelé à chaque tick : une seule passe, sans allocation.
+    // Appelé à chaque tick.
+    // Arrivée : joueur ou PNJ, le premier arrivé l'emporte (plusieurs dans le même tick : le
+    // plus avancé). Un PNJ qui passe la ligne le premier fait gagner l'IA : personne ne marque.
+    let winnerId: string | undefined;
+    let winnerX = -Infinity;
+    this.state.entities.forEach((entity, id) => {
+      if (entity.alive && entity.x > winnerX && this.mode.hasWon(entity)) {
+        winnerId = id;
+        winnerX = entity.x;
+      }
+    });
+    if (winnerId !== undefined) return this.endRound(winnerId);
+
     let aliveCount = 0;
     let lastAlive: RoundPlayer | undefined;
-    let winner: { entityId: string; x: number } | undefined;
     for (const player of this.roundPlayers.values()) {
       if (!player.alive) continue;
       aliveCount++;
       lastAlive = player;
-      const entity = this.state.entities.get(player.entityId)!;
-      // Plusieurs arrivées dans le même tick : le plus avancé gagne.
-      if (this.mode.hasWon(entity) && (!winner || entity.x > winner.x)) winner = { entityId: player.entityId, x: entity.x };
     }
-    if (winner) return this.endRound(winner.entityId);
 
     // Dernier survivant, ou plus personne : seulement s'il y avait de la concurrence.
     // Compté au départ de la manche : si les autres sont partis, le dernier restant gagne.

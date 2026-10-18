@@ -287,8 +287,9 @@ export interface ShotMessage {
 
 /** Serveur → tous, en fin de manche uniquement : qui était joueur, et qui a gagné. */
 export interface RevealMessage {
-  /** Clé du gagnant dans `state.players`, ou null si personne ne gagne. */
+  /** Clé du gagnant dans `state.players`, ou null si aucun joueur ne gagne. */
   winnerPlayerId: string | null;
+  /** Entité gagnante ; si c'est un PNJ (winnerPlayerId null), c'est l'IA qui gagne. */
   winnerEntityId: string | null;
   players: { playerId: string; entityId: string }[];
 }

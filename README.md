@@ -102,6 +102,7 @@ sur un point, la visée se verrouille et le coup part quand le viseur l'atteint.
 On peut se tirer dessus (on meurt) : une balle qui épargnerait son tireur le désignerait.
 
 On gagne en franchissant l'arrivée le premier, ou en étant le dernier joueur en vie.
+Si un PNJ franchit l'arrivée avant tout le monde, l'IA gagne la manche : personne ne marque.
 En fin de manche, tous les joueurs sont révélés, puis une nouvelle manche se prépare
 avec de nouveaux identifiants et une nouvelle attribution des personnages.
 

@@ -249,6 +249,32 @@ describe("manche", () => {
     expect(room.state.players.get(a.sessionId)!.score).toBe(1);
   });
 
+  it("un PNJ qui franchit l'arrivée le premier fait gagner l'IA : personne ne marque", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];
+    await startMatch(room, [a, b], 2);
+    const playerIds = new Set([a.assigns[0].entityId, b.assigns[0].entityId]);
+    const npcId = [...room.state.entities.keys()].find((id) => !playerIds.has(id))!;
+
+    room.state.entities.get(npcId)!.x = RACE.finishX; // sur la ligne
+    advance(room, 1 / 20);
+    expect(room.state.phase).toBe("roundEnd");
+    await waitFor(() => a.reveals.length === 1, "révélation");
+    expect(a.reveals[0]).toMatchObject({ winnerPlayerId: null, winnerEntityId: npcId });
+    expect([...room.state.players.values()].every((p) => p.score === 0)).toBe(true);
+  });
+
+  it("un PNJ mort sur la ligne ne gagne pas", async () => {
+    const room = await createRoom(ctx.colyseus);
+    const a = await join(ctx.colyseus, room);
+    await startMatch(room, [a]);
+    const npc = [...room.state.entities.entries()].find(([id]) => id !== a.assigns[0].entityId)![1];
+    npc.alive = false;
+    npc.x = RACE.finishX;
+    advance(room, 1 / 20);
+    expect(room.state.phase).toBe("playing");
+  });
+
   it("un joueur qui part en pleine manche rend son entité aux PNJ", async () => {
     const room = await createRoom(ctx.colyseus);
     const [a, b] = [await join(ctx.colyseus, room), await join(ctx.colyseus, room)];

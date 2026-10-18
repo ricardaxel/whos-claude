@@ -284,8 +284,19 @@ export class GameScene extends Phaser.Scene {
       this.revealObjects.push(ring, label);
     }
 
+    // Un PNJ arrivé le premier (course) : c'est l'IA qui gagne, on l'entoure lui aussi.
+    const npcWins = !winnerPlayerId && !!winnerEntityId;
+    const npcView = npcWins ? this.entities.get(winnerEntityId!) : undefined;
+    if (npcView) {
+      this.revealObjects.push(
+        this.add.circle(npcView.targetX, npcView.targetY, ENTITY_RADIUS + 10).setStrokeStyle(4, 0xf2c45a).setDepth(DEPTH.reveal),
+      );
+    }
+
     const winner = winnerPlayerId ? state.players.get(winnerPlayerId) : undefined;
-    const text = !winnerPlayerId ? "Personne\nne gagne" : winnerPlayerId === this.room!.sessionId ? "Victoire !" : `Victoire de\n${winner?.name ?? "?"}`;
+    const text = npcWins
+      ? "L'IA gagne !"
+      : !winnerPlayerId ? "Personne\nne gagne" : winnerPlayerId === this.room!.sessionId ? "Victoire !" : `Victoire de\n${winner?.name ?? "?"}`;
     this.banner.setColor(winnerPlayerId === this.room!.sessionId ? GOLD : INK).setText(text).pop();
   }
 
