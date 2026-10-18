@@ -3,3 +3,4 @@ dist/
 *.log
 .vs/
 .env
+deploy/ansible/inventory.ini

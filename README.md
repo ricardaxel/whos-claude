@@ -64,6 +64,11 @@ reproduit le même routage `/colyseus` sur `http://localhost:4173`.
 - Police (DotGothic16, licence OFL) hébergée avec le jeu : aucune requête vers Google.
 - Mémoire plafonnée par conteneur et logs en rotation (`docker-compose.yml`).
 
+### Avec Ansible
+
+`deploy/ansible/deploy.yml` fait tout depuis ton poste : il installe Docker, clone le dépôt,
+écrit le `.env` et lance `docker compose`. Voir [deploy/ansible/README.md](deploy/ansible/README.md).
+
 ### Logs
 
 ```bash

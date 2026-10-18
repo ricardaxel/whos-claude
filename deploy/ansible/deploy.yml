@@ -1,0 +1,166 @@
+# Déploie WhosClaude sur un serveur Debian ou Ubuntu : Docker, code du dépôt, .env, puis
+# docker compose up. Rejouable à volonté : c'est aussi la commande de mise à jour.
+#
+#   ansible-playbook -i inventory.ini deploy.yml
+#
+# Voir README.md (même dossier) pour l'inventaire et les variables.
+- name: Déployer WhosClaude
+  hosts: whosclaude
+  become: true
+
+  vars:
+    app_dir: /opt/whosclaude
+    repo_url: git@github.com:ricardaxel/whos-claude.git
+    repo_version: main
+    # Nom de domaine qui pointe vers le serveur (HTTPS automatique), ou « :80 » pour un essai.
+    site_address: ""
+    http_port: 80
+    https_port: 443
+    # Ouvre SSH, HTTP et HTTPS dans ufw et active le pare-feu (collection community.general).
+    manage_ufw: false
+    # Supprime les images Docker devenues inutiles après chaque déploiement.
+    prune_images: true
+
+  pre_tasks:
+    - name: Vérifier les variables obligatoires
+      ansible.builtin.assert:
+        that:
+          - site_address | length > 0
+          - ansible_os_family == "Debian"
+        fail_msg: >-
+          Renseigne site_address dans l'inventaire (ex. jeu.exemple.fr). Ce playbook vise
+          Debian et Ubuntu.
+
+  tasks:
+    # --- Docker (dépôt officiel, avec le plugin Compose) ---
+    - name: Installer les prérequis
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, git]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Créer le dossier des clés apt
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Ajouter la clé du dépôt Docker
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Ajouter le dépôt Docker
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} stable
+        filename: docker
+        state: present
+      vars:
+        docker_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default(ansible_architecture) }}"
+
+    - name: Installer Docker Engine et Compose
+      ansible.builtin.apt:
+        name: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
+        state: present
+
+    - name: Démarrer Docker au démarrage du serveur
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+
+    # --- Pare-feu (facultatif) ---
+    - name: Ouvrir SSH, HTTP et HTTPS dans ufw
+      when: manage_ufw | bool
+      block:
+        - name: Installer ufw
+          ansible.builtin.apt:
+            name: ufw
+            state: present
+
+        - name: Autoriser les ports
+          community.general.ufw:
+            rule: allow
+            port: "{{ item.port }}"
+            proto: "{{ item.proto }}"
+          loop:
+            - { port: "22", proto: tcp }
+            - { port: "{{ http_port }}", proto: tcp }
+            - { port: "{{ https_port }}", proto: tcp }
+            - { port: "{{ https_port }}", proto: udp } # HTTP/3
+
+        - name: Activer ufw
+          community.general.ufw:
+            state: enabled
+
+    # --- Code et configuration ---
+    - name: Identifier l'utilisateur SSH
+      become: false
+      ansible.builtin.command: whoami
+      register: ssh_user
+      changed_when: false
+
+    - name: Créer le dossier de l'application (propriété de l'utilisateur SSH)
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ ssh_user.stdout }}"
+        mode: "0755"
+
+    # Sans sudo : l'agent SSH transmis (dépôt privé) n'est visible que de l'utilisateur SSH.
+    - name: Récupérer le code du dépôt
+      become: false
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_version }}"
+        accept_newhostkey: true
+        force: true # écrase d'éventuelles retouches locales : le dépôt fait foi
+      register: checkout
+
+    - name: Écrire le fichier .env
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/.env"
+        mode: "0600"
+        content: |
+          # Généré par Ansible (deploy/ansible/deploy.yml) : modifier l'inventaire, pas ce fichier.
+          SITE_ADDRESS={{ site_address }}
+          HTTP_PORT={{ http_port }}
+          HTTPS_PORT={{ https_port }}
+
+    # --- Lancement ---
+    - name: Construire et lancer les conteneurs
+      ansible.builtin.command:
+        cmd: docker compose up -d --build --remove-orphans
+        chdir: "{{ app_dir }}"
+      register: compose
+      # Compose écrit sa progression sur stderr ; rien de recréé = rien n'a changé.
+      changed_when: compose.stderr is search('Recreated|Created|Started')
+
+    - name: Attendre que le serveur de jeu soit sain
+      ansible.builtin.command:
+        cmd: docker compose ps game --format {% raw %}'{{.Health}}'{% endraw %}
+        chdir: "{{ app_dir }}"
+      register: health
+      until: health.stdout == "healthy"
+      retries: 20
+      delay: 3
+      changed_when: false
+
+    - name: Supprimer les images devenues inutiles
+      ansible.builtin.command: docker image prune -f
+      when: prune_images | bool
+      register: prune
+      changed_when: prune.stdout is not search('Total reclaimed space. 0B')
+
+  post_tasks:
+    - name: Résumé
+      ansible.builtin.debug:
+        msg: >-
+          WhosClaude {{ checkout.after[:7] }} en ligne sur {{ site_address }}
+          ({{ 'code mis à jour' if checkout.changed else 'code inchangé' }}).
