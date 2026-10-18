@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { LOOK_COUNT } from "@whosclaude/shared";
-import { characterFrames, facingFromDir, FACINGS, LOOKS, paletteOf, SPRITE_SIZE } from "../src/sprites/characters";
+import {
+  characterFrames, facingFromDir, FACINGS, LOOKS, paletteOf, SPRITE_SIZE, walkPose, WALK_STRIDE_PX,
+} from "../src/sprites/characters";
 
 const diff = (a: readonly string[], b: readonly string[]) =>
   a.reduce((n, row, y) => n + [...row].filter((c, x) => c !== b[y][x]).length, 0);
@@ -46,5 +48,25 @@ describe("personnages", () => {
     expect(facingFromDir(2, "left")).toBe("down");
     expect(facingFromDir(6, "left")).toBe("up");
     expect(facingFromDir(-1, "up")).toBe("up");
+  });
+});
+
+describe("marche", () => {
+  it("commence par un pas, puis alterne pas A, debout, pas B, debout au fil de la distance", () => {
+    const poses = [0, 1, 2, 3, 4].map((n) => walkPose(n * WALK_STRIDE_PX + 0.5));
+    expect(poses).toEqual([1, 0, 2, 0, 1]);
+    expect(walkPose(WALK_STRIDE_PX - 0.01)).toBe(1); // une pose dure exactement une foulée
+  });
+
+  it("la cadence suit la vitesse : en sprint, plus de pas pour la même durée", () => {
+    const changes = (speed: number) => {
+      let walked = 0, last = walkPose(0), count = 0;
+      for (let t = 0; t < 1; t += 1 / 60) {
+        walked += speed / 60;
+        if (walkPose(walked) !== last) count++, (last = walkPose(walked));
+      }
+      return count;
+    };
+    expect(changes(70 * 1.8)).toBeGreaterThan(changes(70) * 1.5);
   });
 });

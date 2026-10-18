@@ -249,8 +249,22 @@ function poses<T>(build: (pose: 0 | 1 | 2) => T): [T, T, T] {
 
 /** Ordre des poses pendant la marche : pas A, debout, pas B, debout. */
 export const WALK_CYCLE = [1, 0, 2, 0] as const;
-/** Durée d'une pose de marche (ms). */
-export const WALK_FRAME_MS = 140;
+/**
+ * Distance parcourue (px d'arène) pendant une pose de marche. Les pas suivent le déplacement
+ * réel du sprite, pas une horloge : cadence plus rapide en sprint, aucun pied qui s'agite sur
+ * place, aucun glissement en pose debout.
+ */
+export const WALK_STRIDE_PX = 9;
+/** En dessous de cette vitesse affichée (px/s), le personnage est considéré à l'arrêt. */
+export const WALK_MIN_SPEED = 10;
+
+/**
+ * Pose de marche selon la distance parcourue depuis le départ. Commence par un pas (pas
+ * par la pose debout) : le mouvement se voit dès la première image.
+ */
+export function walkPose(walked: number): 0 | 1 | 2 {
+  return WALK_CYCLE[Math.floor(walked / WALK_STRIDE_PX) % WALK_CYCLE.length];
+}
 
 /**
  * Orientation à afficher pour une direction de déplacement (0 = est, sens horaire).

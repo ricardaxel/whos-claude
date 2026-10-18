@@ -13,7 +13,7 @@ import { KeyboardMouseSource } from "./input/KeyboardMouseSource";
 import { TouchSource } from "./input/TouchSource";
 import type { InputFrame } from "./input/types";
 import { DEPTH, MODE_VIEWS, type ModeView } from "./modes/ModeView";
-import { facingFromDir, WALK_CYCLE, WALK_FRAME_MS, type Facing } from "./sprites/characters";
+import { facingFromDir, walkPose, WALK_MIN_SPEED, type Facing } from "./sprites/characters";
 import { frameName, lookTexture, registerCharacterTextures } from "./sprites/textures";
 import { CROSSHAIR_EMPTY, CROSSHAIR_LOADED, deathEffect, knifeEffect, registerEffectTextures, shotEffect } from "./effects";
 import { GOLD, INK, PIXEL_FONT, RetroWindow } from "./ui/retro";
@@ -32,10 +32,11 @@ interface View<T extends Phaser.GameObjects.GameObject> {
   targetY: number;
 }
 
-/** Personnage affiché : sprite animé selon son orientation et s'il marche. */
+/** Personnage affiché : sprite animé selon son orientation et la distance qu'il parcourt. */
 interface CharacterView extends View<Phaser.GameObjects.Sprite> {
   facing: Facing;
-  moving: boolean;
+  /** Distance parcourue à l'écran depuis le dernier arrêt (px) : fixe la pose de marche. */
+  walked: number;
   alive: boolean;
   /** Dernière image et dernière hauteur affichées : on ne touche au sprite que si elles changent. */
   frame: string;
@@ -141,12 +142,11 @@ export class GameScene extends Phaser.Scene {
         .sprite(entity.x, entity.y, lookTexture(entity.look ?? 0), frameName(facing, 0))
         .setScale(SPRITE_SCALE)
         .setDepth(DEPTH.entity);
-      const view: CharacterView = { object: sprite, targetX: entity.x, targetY: entity.y, facing, moving: false, alive: true, frame: frameName(facing, 0), depthY: NaN };
+      const view: CharacterView = { object: sprite, targetX: entity.x, targetY: entity.y, facing, walked: 0, alive: true, frame: frameName(facing, 0), depthY: NaN };
       this.entities.set(id, view);
       $(entity).onChange(() => {
         view.targetX = entity.x;
         view.targetY = entity.y;
-        view.moving = entity.dir >= 0;
         view.facing = facingFromDir(entity.dir, view.facing);
         if (entity.dir >= 0) this.facing.set(id, entity.dir);
       });
@@ -309,13 +309,11 @@ export class GameScene extends Phaser.Scene {
     // Même interpolation pour tout le monde, y compris nous :
     // pas de prédiction locale, sinon notre perso réagirait plus vite que les autres.
     const alpha = 1 - Math.exp(-SMOOTHING * (deltaMs / 1000));
-    this.animateCharacters(time);
-    for (const views of [this.entities, this.crosshairs]) {
-      for (const view of views.values()) {
-        view.object.x += (view.targetX - view.object.x) * alpha;
-        view.object.y += (view.targetY - view.object.y) * alpha;
-      }
+    for (const view of this.crosshairs.values()) {
+      view.object.x += (view.targetX - view.object.x) * alpha;
+      view.object.y += (view.targetY - view.object.y) * alpha;
     }
+    this.moveCharacters(alpha, deltaMs / 1000);
 
     if (this.room) this.view?.update(this.room.state, deltaMs / 1000);
     this.syncAimWithCrosshair();
@@ -325,15 +323,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Marche en 4 temps quand l'entité se déplace, pose debout sinon. Même règle pour tout
-   * le monde (joueurs et PNJ), calculée uniquement à partir de l'état public. Les plus bas
-   * à l'écran passent devant, comme dans un vieux RPG.
+   * Déplace les sprites vers leur position serveur, puis les anime d'après le chemin
+   * réellement parcouru à l'écran : marche en 4 temps tant que le sprite avance, pose debout
+   * dès qu'il s'arrête. Même règle pour tout le monde (joueurs et PNJ), calculée uniquement à
+   * partir de l'état public. Les plus bas à l'écran passent devant, comme dans un vieux RPG.
    */
-  private animateCharacters(time: number) {
-    const step = WALK_CYCLE[Math.floor(time / WALK_FRAME_MS) % WALK_CYCLE.length];
+  private moveCharacters(alpha: number, dt: number) {
     for (const view of this.entities.values()) {
+      const dx = (view.targetX - view.object.x) * alpha;
+      const dy = (view.targetY - view.object.y) * alpha;
+      view.object.x += dx;
+      view.object.y += dy;
       if (!view.alive) continue;
-      const frame = frameName(view.facing, view.moving ? step : 0);
+
+      const moved = Math.hypot(dx, dy);
+      const walking = dt > 0 && moved / dt >= WALK_MIN_SPEED;
+      view.walked = walking ? view.walked + moved : 0;
+      const frame = frameName(view.facing, walking ? walkPose(view.walked) : 0);
       if (frame !== view.frame) view.object.setFrame((view.frame = frame));
       // setDepth relance un tri de toute la scène : seulement quand le personnage a bougé d'un pixel.
       const y = Math.round(view.object.y);
