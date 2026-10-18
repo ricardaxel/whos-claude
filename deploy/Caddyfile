@@ -1,7 +1,21 @@
-# Point d'entrée unique du jeu. SITE_ADDRESS vient du fichier .env :
-#   - un nom de domaine (jeu.exemple.fr) : HTTPS automatique (Let's Encrypt) ;
-#   - « :80 » : HTTP simple, pour essayer en local ou sur le réseau de la maison.
-{$SITE_ADDRESS}
+# Point d'entrée du jeu, en HTTP simple : le domaine et le HTTPS sont gérés par ton propre
+# reverse proxy, devant (par exemple : reverse_proxy 127.0.0.1:8080). Ce Caddy-ci sert le
+# client et fait suivre /colyseus au serveur de jeu.
+{
+	auto_https off
+	admin off
+	servers {
+		# Le proxy de devant est sur la machine (ou le réseau Docker) : on croit l'adresse du
+		# joueur qu'il transmet dans X-Forwarded-For. Le port n'est publié que sur 127.0.0.1 :
+		# personne d'autre ne peut se faire passer pour lui. En mode strict, l'en-tête est lu
+		# de droite à gauche : une adresse ajoutée par le joueur lui-même est ignorée.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+:80
 
 encode zstd gzip
 
@@ -14,9 +28,6 @@ header {
 	# Le jeu ne charge que ses propres fichiers (police comprise) ; les WebSockets vont vers
 	# la même origine. « unsafe-inline » pour les styles : la page en contient.
 	Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-	# HTTPS obligatoire pour ce domaine (les navigateurs l'ignorent en HTTP, donc sans effet
-	# en local). Pas de includeSubDomains : d'autres sous-domaines n'ont peut-être pas HTTPS.
-	Strict-Transport-Security "max-age=31536000"
 	-Server
 }
 
@@ -28,8 +39,9 @@ handle_path /colyseus/* {
 		max_size 16KB
 	}
 	reverse_proxy game:2567 {
-		# Adresse réelle du joueur, pour les limites par IP du serveur (il ne voit que Caddy).
-		header_up X-Real-IP {remote_host}
+		# Adresse réelle du joueur, pour les limites par IP du serveur (il ne voit que Caddy) :
+		# celle transmise par ton proxy, sinon celle de la connexion.
+		header_up X-Real-IP {client_ip}
 	}
 }
 

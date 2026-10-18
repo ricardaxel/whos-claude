@@ -1,5 +1,6 @@
 # Déploie WhosClaude sur un serveur Debian ou Ubuntu : Docker, code du dépôt, .env, puis
-# docker compose up. Rejouable à volonté : c'est aussi la commande de mise à jour.
+# docker compose up. Le jeu répond en HTTP sur un port local ; ton reverse proxy (domaine,
+# HTTPS) le fait suivre, par exemple avec « reverse_proxy 127.0.0.1:8080 » dans Caddy. Rejouable à volonté : c'est aussi la commande de mise à jour.
 #
 #   ansible-playbook -i inventory.ini deploy.yml
 #
@@ -12,24 +13,20 @@
     app_dir: /opt/whosclaude
     repo_url: git@github.com:ricardaxel/whos-claude.git
     repo_version: main
-    # Nom de domaine qui pointe vers le serveur (HTTPS automatique), ou « :80 » pour un essai.
-    site_address: ""
-    http_port: 80
-    https_port: 443
-    # Ouvre SSH, HTTP et HTTPS dans ufw et active le pare-feu (collection community.general).
+    # Port local où le jeu répond (HTTP), et interface d'écoute (127.0.0.1 : la machine seule).
+    app_port: 8080
+    bind_address: 127.0.0.1
+    # Ouvre SSH, HTTP et HTTPS (pour ton reverse proxy) dans ufw et active le pare-feu
+    # (collection community.general).
     manage_ufw: false
     # Supprime les images Docker devenues inutiles après chaque déploiement.
     prune_images: true
 
   pre_tasks:
-    - name: Vérifier les variables obligatoires
+    - name: Vérifier le système
       ansible.builtin.assert:
-        that:
-          - site_address | length > 0
-          - ansible_os_family == "Debian"
-        fail_msg: >-
-          Renseigne site_address dans l'inventaire (ex. jeu.exemple.fr). Ce playbook vise
-          Debian et Ubuntu.
+        that: ansible_os_family == "Debian"
+        fail_msg: Ce playbook vise Debian et Ubuntu.
 
   tasks:
     # --- Docker (dépôt officiel, avec le plugin Compose) ---
@@ -75,7 +72,7 @@
         enabled: true
 
     # --- Pare-feu (facultatif) ---
-    - name: Ouvrir SSH, HTTP et HTTPS dans ufw
+    - name: Ouvrir SSH, HTTP et HTTPS dans ufw (pour ton reverse proxy)
       when: manage_ufw | bool
       block:
         - name: Installer ufw
@@ -90,9 +87,9 @@
             proto: "{{ item.proto }}"
           loop:
             - { port: "22", proto: tcp }
-            - { port: "{{ http_port }}", proto: tcp }
-            - { port: "{{ https_port }}", proto: tcp }
-            - { port: "{{ https_port }}", proto: udp } # HTTP/3
+            - { port: "80", proto: tcp }
+            - { port: "443", proto: tcp }
+            - { port: "443", proto: udp } # HTTP/3
 
         - name: Activer ufw
           community.general.ufw:
@@ -129,9 +126,8 @@
         mode: "0600"
         content: |
           # Généré par Ansible (deploy/ansible/deploy.yml) : modifier l'inventaire, pas ce fichier.
-          SITE_ADDRESS={{ site_address }}
-          HTTP_PORT={{ http_port }}
-          HTTPS_PORT={{ https_port }}
+          PORT={{ app_port }}
+          BIND_ADDRESS={{ bind_address }}
 
     # --- Lancement ---
     - name: Construire et lancer les conteneurs
@@ -162,5 +158,5 @@
     - name: Résumé
       ansible.builtin.debug:
         msg: >-
-          WhosClaude {{ checkout.after[:7] }} en ligne sur {{ site_address }}
+          WhosClaude {{ checkout.after[:7] }} en ligne sur http://{{ bind_address }}:{{ app_port }}
           ({{ 'code mis à jour' if checkout.changed else 'code inchangé' }}).

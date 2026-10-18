@@ -14,27 +14,37 @@ npm run dev
 
 ## Déployer
 
-Un seul serveur, deux conteneurs (`docker-compose.yml`) :
+Un seul serveur, deux conteneurs (`docker-compose.yml`), derrière **ton propre reverse
+proxy** (Caddy, nginx…), qui gère le domaine et le HTTPS :
 
-- **web** : Caddy. Il sert le client (build Vite), fait suivre `/colyseus/*` au serveur de
-  jeu (WebSockets compris) et gère le **HTTPS automatiquement** (Let's Encrypt).
-- **game** : le serveur Colyseus. Non exposé : seul Caddy lui parle.
+- **web** : un petit Caddy interne, en HTTP simple. Il sert le client (build Vite), fait
+  suivre `/colyseus/*` au serveur de jeu (WebSockets compris), borne la taille des requêtes
+  et ajoute les en-têtes de sécurité. Publié sur `127.0.0.1:8080` seulement.
+- **game** : le serveur Colyseus. Non exposé : seul le Caddy interne lui parle.
 
 Pas de load balancer : les rooms vivent en mémoire d'un seul process, qui suffit largement
 pour des soirées entre amis.
 
 ### Première mise en ligne
 
-Prérequis : un serveur avec Docker (par exemple un petit VPS) et un nom de domaine qui
-pointe vers lui (ports 80 et 443 ouverts).
-
 ```bash
 git clone <ce dépôt> whosclaude && cd whosclaude
-cp .env.example .env    # puis renseigner SITE_ADDRESS=ton.domaine.fr
 docker compose up -d --build
 ```
 
-Le jeu est alors sur `https://ton.domaine.fr` ; le certificat est obtenu au premier accès.
+Le jeu répond alors sur `http://127.0.0.1:8080`. Côté reverse proxy, il suffit de tout
+faire suivre vers ce port. Avec Caddy :
+
+```
+jeu.exemple.fr {
+	reverse_proxy 127.0.0.1:8080
+}
+```
+
+Les WebSockets passent sans réglage particulier. Le proxy doit transmettre l'adresse du
+joueur dans `X-Forwarded-For` (Caddy et nginx le font) : le serveur s'en sert pour ses
+limites par adresse. Le port et l'interface d'écoute se changent dans `.env` (voir
+`.env.example`).
 
 ### Mettre à jour
 
@@ -43,20 +53,21 @@ git pull && docker compose up -d --build
 ```
 
 Les parties en cours sont coupées (rooms en mémoire) : mieux vaut mettre à jour quand
-personne ne joue. Les certificats sont conservés (volume `caddy_data`).
+personne ne joue.
 
-### Essayer en local, sans domaine
+### Essayer en local
 
-Dans `.env` : `SITE_ADDRESS=:80` et `HTTP_PORT=8080`, puis `docker compose up -d --build` :
-le jeu est sur `http://localhost:8080` (et sur le réseau de la maison avec l'IP du PC).
+`docker compose up -d --build`, puis `http://localhost:8080`. Pour jouer depuis d'autres
+appareils de la maison, mettre `BIND_ADDRESS=0.0.0.0` dans `.env` et utiliser l'IP du PC.
 
 Sans Docker, `npm run build -w client && npm run preview -w client` (avec le serveur lancé)
 reproduit le même routage `/colyseus` sur `http://localhost:4173`.
 
 ### Sécurité
 
-- Caddy borne le corps des requêtes (16 Ko), ajoute les en-têtes de sécurité (CSP, HSTS…)
-  et transmet l'IP du joueur au serveur (`X-Real-IP`).
+- Le Caddy interne borne le corps des requêtes (16 Ko), ajoute les en-têtes de sécurité
+  (CSP…) et transmet au serveur l'adresse du joueur (`X-Real-IP`), lue dans le
+  `X-Forwarded-For` de ton proxy. Le HTTPS et HSTS relèvent de ton proxy.
 - Le serveur (`server/src/limits.ts`) freine les requêtes de matchmaking dès la requête
   HTTP (rafale de 12, puis une toutes les 2 s par adresse ; en IPv6, par préfixe /64),
   limite à 3 les parties ouvertes par une même adresse et à 1000 au total. Une place

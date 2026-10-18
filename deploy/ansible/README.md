@@ -1,9 +1,10 @@
 # Déploiement avec Ansible
 
-`deploy.yml` prépare un serveur Debian ou Ubuntu et y lance le jeu. Le playbook :
+`deploy.yml` prépare un serveur Debian ou Ubuntu et y lance le jeu, en HTTP sur un port
+local : ton reverse proxy (domaine, HTTPS) le fait suivre. Le playbook :
 
 1. installe Docker Engine et le plugin Compose depuis le dépôt officiel de Docker ;
-2. ouvre les ports 22, 80 et 443 dans ufw, si `manage_ufw=true` ;
+2. ouvre les ports 22, 80 et 443 dans ufw (pour ton proxy), si `manage_ufw=true` ;
 3. clone le dépôt dans `/opt/whosclaude` (ou le met à jour) ;
 4. écrit le `.env` à partir de l'inventaire ;
 5. lance `docker compose up -d --build`, puis attend que le serveur de jeu soit sain ;
@@ -17,7 +18,7 @@ Depuis un poste avec Ansible (Linux, macOS ou WSL) :
 
 ```bash
 cd deploy/ansible
-cp inventory.example.ini inventory.ini   # puis renseigner l'hôte et site_address
+cp inventory.example.ini inventory.ini   # puis renseigner l'hôte
 ansible-playbook -i inventory.ini deploy.yml
 ```
 
@@ -25,7 +26,7 @@ Il faut :
 
 - un accès SSH au serveur, avec un utilisateur qui a `sudo` (ajouter `-K` si sudo demande
   un mot de passe) ;
-- un nom de domaine qui pointe vers le serveur, pour le HTTPS automatique ;
+- ton reverse proxy, qui fait suivre le domaine vers `127.0.0.1:8080` ;
 - la collection `community.general`, seulement si `manage_ufw=true`. Elle est fournie avec
   le paquet `ansible` complet, ou s'installe avec
   `ansible-galaxy collection install community.general`.
@@ -44,12 +45,11 @@ et la ligne `ForwardAgent` peut être retirée.
 
 | Variable       | Défaut                                       | Rôle                                         |
 |----------------|----------------------------------------------|----------------------------------------------|
-| `site_address` | (obligatoire)                                | Domaine du jeu, ou `:80` pour un essai       |
 | `repo_url`     | `git@github.com:ricardaxel/whos-claude.git`  | Dépôt à cloner                               |
 | `repo_version` | `main`                                       | Branche, tag ou commit à déployer            |
 | `app_dir`      | `/opt/whosclaude`                            | Dossier du jeu sur le serveur                |
-| `http_port`    | `80`                                         | Port HTTP publié par Caddy                   |
-| `https_port`   | `443`                                        | Port HTTPS publié par Caddy                  |
+| `app_port`     | `8080`                                       | Port local du jeu (HTTP)                     |
+| `bind_address` | `127.0.0.1`                                  | Interface d'écoute du jeu                    |
 | `manage_ufw`   | `false`                                      | Configurer et activer le pare-feu ufw        |
 | `prune_images` | `true`                                       | Supprimer les images inutiles après déploiement |
 
