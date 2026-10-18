@@ -38,9 +38,14 @@ function pointer(overrides: Record<string, unknown> = {}) {
 function fakeScene(gamepads?: unknown[], displayScale = 1) {
   const keys: Record<string, { isDown: boolean }> = {};
   const keyboard = Object.assign(emitter(), {
-    addKeys: (codes: Record<string, number>) => {
+    capture: { addKeys: true as boolean, global: true },
+    addKeys(codes: Record<string, number>, enableCapture = true) {
+      keyboard.capture.addKeys = enableCapture;
       for (const name of Object.keys(codes)) keys[name] = { isDown: false };
       return keys;
+    },
+    disableGlobalCapture() {
+      keyboard.capture.global = false;
     },
   });
   const input = Object.assign(emitter(), {
@@ -103,6 +108,35 @@ describe("KeyboardMouseSource", () => {
     const next = source.read();
     expect(next.start).toBeUndefined();
     expect(next.fire).toBeUndefined();
+  });
+
+  it("ne capture jamais les lettres dans un champ de saisie : on peut taper Z, Q, S, D, W, A", () => {
+    loadPage();
+    const { scene, keyboard } = fakeScene();
+    const source = new KeyboardMouseSource(scene);
+    expect(keyboard.capture).toEqual({ addKeys: false, global: false });
+
+    const press = (target: EventTarget, code: string) => {
+      const event = new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const name = document.getElementById("home-name")!;
+    document.body.dataset.screen = "home";
+    for (const code of ["KeyZ", "KeyQ", "KeyS", "KeyD", "KeyW", "KeyA", "Space"]) expect(press(name, code), code).toBe(false);
+
+    // En jeu, les touches du jeu ne font plus défiler la page ni cliquer un bouton…
+    document.body.dataset.screen = "game";
+    expect(press(document.body, "Space")).toBe(true);
+    expect(press(document.body, "ArrowDown")).toBe(true);
+    expect(press(document.body, "KeyX")).toBe(false);
+    // … sauf dans un champ de saisie.
+    expect(press(name, "KeyZ")).toBe(false);
+
+    const removed = vi.spyOn(window, "removeEventListener");
+    source.destroy();
+    expect(removed).toHaveBeenCalledWith("keydown", expect.any(Function));
+    removed.mockRestore();
   });
 
   it("la souris vise et tire ; les doigts sont laissés au tactile", () => {

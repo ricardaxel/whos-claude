@@ -5,6 +5,17 @@ type KeyName = "space" | "shift" | "left" | "right" | "up" | "down" | "z" | "q" 
 
 const axis = (positive: boolean, negative: boolean) => (positive ? 1 : 0) - (negative ? 1 : 0);
 
+/** Touches du jeu dont on bloque l'effet par défaut (défilement, clic sur un bouton) en jeu. */
+const GAME_KEYS = new Set([
+  "Space", "ShiftLeft", "ShiftRight", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+  "KeyZ", "KeyQ", "KeyS", "KeyD", "KeyW", "KeyA", "KeyE", "KeyF", "Enter",
+]);
+
+/** Saisie en cours dans un champ (pseudo, code de partie…) : le clavier lui appartient. */
+function isTyping(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+}
+
 /**
  * Clavier : Espace / → / D pour avancer, Maj (avec Espace) pour sprinter, Entrée pour être prêt, F pour tirer.
  * Déplacement libre : flèches, ZQSD (AZERTY) ou WASD (QWERTY). Action (couteau) : Espace ou E.
@@ -23,7 +34,11 @@ export class KeyboardMouseSource implements InputSource {
       space: K.SPACE, shift: K.SHIFT,
       left: K.LEFT, right: K.RIGHT, up: K.UP, down: K.DOWN,
       z: K.Z, q: K.Q, s: K.S, d: K.D, w: K.W, a: K.A,
-    }) as typeof this.keys;
+    }, false) as typeof this.keys;
+    // Pas de capture globale par Phaser : elle bloquerait ces lettres partout, jusque dans le
+    // champ du pseudo. On ne bloque l'effet par défaut des touches qu'en jeu (voir onKeyDown).
+    keyboard.disableGlobalCapture();
+    window.addEventListener("keydown", this.onKeyDown);
 
     // Événements plutôt que JustDown : aucun appui bref n'est perdu entre deux frames.
     keyboard.on("keydown-ENTER", this.onStart);
@@ -51,6 +66,7 @@ export class KeyboardMouseSource implements InputSource {
 
   destroy() {
     const keyboard = this.scene.input.keyboard!;
+    window.removeEventListener("keydown", this.onKeyDown);
     keyboard.off("keydown-ENTER", this.onStart);
     keyboard.off("keydown-F", this.onFire);
     keyboard.off("keydown-SPACE", this.onAction);
@@ -58,6 +74,12 @@ export class KeyboardMouseSource implements InputSource {
     this.scene.input.off("pointermove", this.onPointerMove);
     this.scene.input.off("pointerdown", this.onPointerDown);
   }
+
+  private onKeyDown = (event: KeyboardEvent) => {
+    if (document.body.dataset.screen === "game" && GAME_KEYS.has(event.code) && !isTyping(event.target)) {
+      event.preventDefault();
+    }
+  };
 
   private onStart = () => (this.pending.start = true);
   private onFire = () => (this.pending.fire = true);
