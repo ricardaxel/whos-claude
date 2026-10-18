@@ -6,11 +6,6 @@ import type { ModeView } from "./ModeView";
 
 /** Course : la salle de donjon, une ligne de départ et une ligne d'arrivée en damier. */
 export class RaceView implements ModeView {
-  readonly hints = {
-    countdown: "Prépare-toi… Lequel es-tu ? Bouge pour le découvrir.",
-    playing: "Avance (Espace, RT) · Sprint (Maj+Espace, LB) : ça se voit ! · Vise et tire (clic, RB) · Une balle",
-  };
-
   /** Tout le monde regarde la ligne d'arrivée. */
   readonly initialFacing = "right" as const;
 

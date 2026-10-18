@@ -76,6 +76,8 @@ docker compose logs -f game
    (4 lettres). L'URL `?room=CODE` sert de lien d'invitation.
 2. **Salon** : liste des joueurs et de leur statut. L'hôte choisit le mode et le nombre de
    manches, puis lance le match quand les autres sont prêts (Entrée / Start = prêt).
+   Le salon affiche les règles du mode choisi (but, conseils, commandes) : le jeu, lui,
+   n'affiche en haut que la manche et le temps restant.
    Si l'hôte part, le joueur le plus ancien prend la main. L'hôte peut **exclure** un joueur :
    son adresse ne peut plus rejoindre la partie pendant 10 minutes, sauf si c'est celle de
    l'hôte (même wifi : on n'empêche pas le reste de la maison de jouer).
@@ -166,7 +168,7 @@ salle : la zone praticable (`PLAYFIELD`) exclut les murs, côté serveur.
 - `shared/` : constantes, règles de déplacement et messages réseau communs.
 - `server/` : room Colyseus autoritaire (joueurs, viseurs, tirs, cycle de manche) et `modes/` (règles, IA des PNJ, victoire).
 - `client/` : rendu Phaser, couche d'inputs, envoi des intentions et interpolation ;
-  `client/src/modes/` : décor et consignes de chaque mode.
+  `client/src/modes/` : décor de chaque mode ; `client/src/ui/modeGuides.ts` : règles affichées dans le salon.
 
 ## Règle d'or : joueurs et PNJ indiscernables
 

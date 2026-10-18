@@ -211,15 +211,13 @@ export class GameScene extends Phaser.Scene {
     this.refreshBanner();
   }
 
-  /** Bandeau du haut : manche, temps restant (si le mode en a), consignes du mode. */
+  /** Bandeau du haut : manche et temps restant (si le mode en a). Les règles sont dans le salon. */
   private refreshStatus() {
     const state = this.room?.state;
     if (!state || !this.created) return;
-    const hint = this.view?.hints[state.phase];
-    if (!hint) return void this.status.setText("");
+    if (state.phase !== "countdown" && state.phase !== "playing") return void this.status.setText("");
     const parts = [`Manche ${state.round}/${state.totalRounds}`];
     if (state.timeLeft > 0) parts.push(formatTime(state.timeLeft));
-    parts.push(hint);
     this.status.setText(parts.join(" · "));
   }
 

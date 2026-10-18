@@ -23,11 +23,6 @@ const TEXTURE_SCALE = 2;
  * ce qui compte sur les téléphones d'entrée de gamme.
  */
 export class AssassinsView implements ModeView {
-  readonly hints = {
-    countdown: "Prépare-toi… Lequel es-tu ? Bouge pour le découvrir.",
-    playing: "Déplace-toi (ZQSD, flèches, stick) · Couteau (Espace, A) : le geste se voit, frappe dans l'ombre !",
-  };
-
   readonly initialFacing = "down" as const;
 
   private backdrop: DungeonBackdrop;

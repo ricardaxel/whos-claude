@@ -96,7 +96,7 @@ export const MODES = {
   race: {
     id: "race",
     name: "Course",
-    description: "Une seule touche pour avancer, une seule balle. Premier à l'arrivée ou dernier survivant.",
+    description: "Une seule touche pour avancer, une seule balle. Premier à l'arrivée (avant les PNJ !) ou dernier survivant.",
   },
   assassins: {
     id: "assassins",

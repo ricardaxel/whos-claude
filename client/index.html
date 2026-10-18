@@ -97,6 +97,16 @@
       .badge { font-size: 14px; color: var(--ink-dim); }
       .badge::before { content: "["; } .badge::after { content: "]"; }
       .badge.ok { color: var(--ok); }
+      .rules { display: flex; flex-direction: column; gap: 12px; font-size: 15px; line-height: 1.35; }
+      .rules p { margin: 0; }
+      .rules h3 { margin: 0 0 4px; font-size: 15px; font-weight: normal; color: var(--gold); }
+      .rules ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+      .rules ul li::marker { content: "▸ "; color: var(--ink-dim); }
+      table.controls { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+      table.controls th { color: var(--ink-dim); font-weight: normal; text-align: left; }
+      table.controls th, table.controls td { padding: 3px 4px; vertical-align: top; overflow-wrap: anywhere; }
+      table.controls td:first-child { color: var(--gold); }
+      table.controls tbody tr { border-top: 1px solid #2a2633; }
       button.kick { flex: none; font-size: 14px; color: var(--danger); padding: 0 4px 0 22px; }
       #podium-players li:first-child .grow { color: var(--gold); }
 
@@ -186,6 +196,10 @@
           <button id="lobby-ready"></button>
           <button id="lobby-start" class="primary">Lancer le match</button>
           <button id="lobby-leave">Quitter</button>
+        </div>
+        <div class="window">
+          <span id="lobby-rules-title" class="title">Règles</span>
+          <div id="lobby-rules" class="rules"></div>
         </div>
       </div>
     </section>

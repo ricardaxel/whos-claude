@@ -3,6 +3,7 @@ import {
 } from "@whosclaude/shared";
 import type { GameRoom } from "../net";
 import { byId, playerRow } from "./dom";
+import { MODE_GUIDES, renderGuide } from "./modeGuides";
 
 /**
  * Salon : code à partager, joueurs et leur statut, réglages (modifiables par l'hôte seul).
@@ -15,6 +16,10 @@ export class LobbyScreen {
   private players = byId<HTMLUListElement>("lobby-players");
   private mode = byId<HTMLSelectElement>("lobby-mode");
   private modeDescription = byId("lobby-mode-description");
+  private rulesTitle = byId("lobby-rules-title");
+  private rules = byId("lobby-rules");
+  /** Mode dont les règles sont affichées : on ne les redessine que s'il change. */
+  private rulesMode?: string;
   private rounds = byId<HTMLSelectElement>("lobby-rounds");
   private hostHint = byId("lobby-host-hint");
   private readyButton = byId<HTMLButtonElement>("lobby-ready");
@@ -71,6 +76,11 @@ export class LobbyScreen {
     this.mode.disabled = !isHost;
     this.rounds.disabled = !isHost;
     this.modeDescription.textContent = isModeId(state.modeId) ? MODES[state.modeId].description : "";
+    if (this.rulesMode !== state.modeId && isModeId(state.modeId)) {
+      this.rulesMode = state.modeId;
+      this.rulesTitle.textContent = `Règles : ${MODES[state.modeId].name}`;
+      this.rules.replaceChildren(...renderGuide(MODE_GUIDES[state.modeId]));
+    }
 
     const me = state.players.get(sessionId);
     const othersReady = [...state.players.entries()].every(([id, p]) => id === state.hostId || p.ready);

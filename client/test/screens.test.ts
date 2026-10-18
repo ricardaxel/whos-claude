@@ -80,6 +80,22 @@ describe("LobbyScreen", () => {
     confirm.mockRestore();
   });
 
+  it("affiche les règles du mode choisi, et les change avec le mode", () => {
+    const lobby = new LobbyScreen(() => {});
+    const room = fakeRoom("guest", { host: player("Alice"), guest: player("Bob") });
+    lobby.attach(room);
+    lobby.render();
+    expect(text("lobby-rules-title")).toBe("Règles : Course");
+    expect(text("lobby-rules")).toContain("l'IA gagne la manche");
+    expect(document.querySelectorAll("#lobby-rules table.controls tbody tr")).toHaveLength(4);
+
+    (room.state as { modeId: string }).modeId = "assassins";
+    lobby.render();
+    expect(text("lobby-rules-title")).toBe("Règles : Assassins");
+    expect(text("lobby-rules")).toContain("Au bout de 2 minutes");
+    expect(document.querySelectorAll("#lobby-rules table.controls tbody tr")).toHaveLength(2);
+  });
+
   it("un invité ne voit aucun bouton d'exclusion", () => {
     const lobby = new LobbyScreen(() => {});
     lobby.attach(fakeRoom("guest", { host: player("Alice"), guest: player("Bob"), other: player("Eve") }));
