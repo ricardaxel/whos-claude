@@ -48,6 +48,8 @@ interface RoundPlayer {
   firing: boolean;
   /** Instant (horloge de manche) à partir duquel le couteau est de nouveau utilisable. */
   knifeReadyAt: number;
+  /** Joueurs éliminés pendant la manche (les PNJ ne comptent pas, soi-même non plus). */
+  kills: number;
 }
 
 /**
@@ -316,7 +318,23 @@ export class GameRoom extends Room<GameState> {
     this.state.timeLeft = 0;
   }
 
-  private endRound(winnerEntityId: string | null) {
+  /** Entité du joueur qui a éliminé le plus de joueurs ; null si personne, ou en cas d'égalité. */
+  private topKiller(): string | null {
+    let best: RoundPlayer | null = null;
+    let tie = false;
+    for (const player of this.roundPlayers.values()) {
+      if (player.kills === 0) continue;
+      if (!best || player.kills > best.kills) {
+        best = player;
+        tie = false;
+      } else if (player.kills === best.kills) {
+        tie = true;
+      }
+    }
+    return best && !tie ? best.entityId : null;
+  }
+
+  private endRound(winnerEntityId: string | null, timeUp = false) {
     this.state.entities.forEach((entity) => (entity.dir = IDLE));
     const players = [...this.roundPlayers.entries()].map(([playerId, p]) => ({ playerId, entityId: p.entityId }));
     const winnerPlayerId = players.find((p) => p.entityId === winnerEntityId)?.playerId ?? null;
@@ -324,7 +342,7 @@ export class GameRoom extends Room<GameState> {
     if (winnerInfo) winnerInfo.score++;
 
     this.setPhase("roundEnd", RESULTS_SECONDS);
-    const message: RevealMessage = { winnerPlayerId, winnerEntityId, players };
+    const message: RevealMessage = { winnerPlayerId, winnerEntityId, players, timeUp };
     this.broadcast(MSG.reveal, message);
   }
 
@@ -379,7 +397,8 @@ export class GameRoom extends Room<GameState> {
     if (this.mode.roundSeconds <= 0) return;
     this.roundRemaining -= dt;
     this.state.timeLeft = Math.max(0, Math.ceil(this.roundRemaining));
-    if (this.roundRemaining <= 0) this.endRound(null);
+    // Temps écoulé : le joueur qui a éliminé le plus de joueurs gagne (aucun, ou égalité : personne).
+    if (this.roundRemaining <= 0) this.endRound(this.topKiller(), true);
   }
 
   private addRoundPlayer(client: Client) {
@@ -405,7 +424,7 @@ export class GameRoom extends Room<GameState> {
     }
 
     this.roundPlayers.set(client.sessionId, {
-      entityId, crosshairId, aimX: ARENA.width / 2, aimY: ARENA.height / 2, alive: true, firing: false, knifeReadyAt: 0,
+      entityId, crosshairId, aimX: ARENA.width / 2, aimY: ARENA.height / 2, alive: true, firing: false, knifeReadyAt: 0, kills: 0,
     });
     const message: AssignMessage = { entityId, crosshairId };
     client.send(MSG.assign, message);
@@ -481,7 +500,7 @@ export class GameRoom extends Room<GameState> {
     });
     const targetId = inRange.sort((a, b) => a.distance - b.distance)[0]?.id;
 
-    const message: ShotMessage = { x: crosshair.x, y: crosshair.y, victim: targetId ? this.kill(targetId) : null };
+    const message: ShotMessage = { x: crosshair.x, y: crosshair.y, victim: targetId ? this.kill(targetId, shooter) : null };
     this.broadcast(MSG.shot, message);
   }
 
@@ -498,12 +517,12 @@ export class GameRoom extends Room<GameState> {
         targetId = id;
       }
     }
-    const message: KnifeMessage = { entityId: attacker.entityId, victim: targetId ? this.kill(targetId) : null };
+    const message: KnifeMessage = { entityId: attacker.entityId, victim: targetId ? this.kill(targetId, attacker) : null };
     this.broadcast(MSG.knife, message);
   }
 
   /** Élimine une entité ; renvoie s'il s'agissait d'un joueur ou d'un PNJ. */
-  private kill(targetId: string): "player" | "npc" {
+  private kill(targetId: string, killer: RoundPlayer): "player" | "npc" {
     const target = this.state.entities.get(targetId)!;
     target.alive = false;
     target.dir = IDLE;
@@ -511,6 +530,7 @@ export class GameRoom extends Room<GameState> {
     const victimPlayer = victimId ? this.roundPlayers.get(victimId) : undefined;
     if (!victimPlayer) return "npc";
     victimPlayer.alive = false;
+    if (victimPlayer !== killer) killer.kills++;
     if (victimPlayer.crosshairId) this.state.crosshairs.delete(victimPlayer.crosshairId);
     return "player";
   }

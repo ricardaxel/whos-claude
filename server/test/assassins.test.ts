@@ -3,8 +3,9 @@ import { ARENA, ASSASSINS, ENTITY_RADIUS, IDLE, MSG, SPEED, TICK_RATE, type Dir 
 import { Entity, GameState } from "../src/GameState.js";
 import { AssassinsMode } from "../src/modes/AssassinsMode.js";
 import {
-  advance, advanceUntil, createRoom, internals, join, send, stab, startMatch, useTestServer, waitFor,
+  advance, advanceUntil, createRoom, internals, join, type Player, send, stab, startMatch, useTestServer, waitFor,
 } from "./helpers.js";
+import type { GameRoom } from "../src/GameRoom.js";
 
 describe("AssassinsMode", () => {
   const mode = new AssassinsMode();
@@ -154,12 +155,61 @@ describe("manche d'assassins", () => {
     expect(room.state.players.get(a.sessionId)!.score).toBe(1);
   });
 
-  it("à la fin du temps, personne ne gagne", async () => {
-    const { room, players } = await setup();
+  /** Fin au temps : renvoie le message de révélation reçu par `watcher`. */
+  async function timeUp(room: GameRoom, watcher: Player) {
     advanceUntil(room, "roundEnd", ASSASSINS.roundSeconds + 1);
-    await waitFor(() => players[0].reveals.length === 1, "révélation");
-    expect(players[0].reveals[0].winnerPlayerId).toBeNull();
+    await waitFor(() => watcher.reveals.length === 1, "révélation");
+    return watcher.reveals[0];
+  }
+  const entityOf = (p: Player) => p.assigns.at(-1)!.entityId;
+
+  it("à la fin du temps, sans élimination, personne ne gagne", async () => {
+    const { room, players } = await setup();
+    const reveal = await timeUp(room, players[0]);
+    expect(reveal).toMatchObject({ winnerPlayerId: null, timeUp: true });
     expect([...room.state.players.values()].every((p) => p.score === 0)).toBe(true);
+  });
+
+  it("à la fin du temps, le joueur qui a éliminé le plus de joueurs gagne ; les PNJ ne comptent pas", async () => {
+    const { room, players: [a, b, c, d] } = await setup(4);
+    await stab(room, a, entityOf(b)); // a : 1 joueur
+    const npcs = [...room.state.entities.keys()].filter((id) => ![a, b, c, d].some((p) => entityOf(p) === id));
+    await stab(room, c, npcs[0]); // c : 2 PNJ, qui ne comptent pas
+    advance(room, ASSASSINS.knifeCooldown);
+    await stab(room, c, npcs[1]);
+
+    const reveal = await timeUp(room, d);
+    expect(reveal).toMatchObject({ winnerPlayerId: a.sessionId, winnerEntityId: entityOf(a), timeUp: true });
+    expect(room.state.players.get(a.sessionId)!.score).toBe(1);
+  });
+
+  it("le meilleur tueur gagne même s'il est mort entre-temps", async () => {
+    const { room, players: [a, b, c, d, e] } = await setup(5);
+    await stab(room, a, entityOf(b));
+    advance(room, ASSASSINS.knifeCooldown);
+    await stab(room, a, entityOf(c)); // a : 2
+    await stab(room, d, entityOf(a)); // d : 1, a est mort
+
+    const reveal = await timeUp(room, e);
+    expect(reveal.winnerPlayerId).toBe(a.sessionId);
+  });
+
+  it("à égalité d'éliminations, personne ne gagne", async () => {
+    const { room, players: [a, b, c, d] } = await setup(4);
+    await stab(room, a, entityOf(b));
+    await stab(room, c, entityOf(d));
+
+    const reveal = await timeUp(room, a);
+    expect(reveal).toMatchObject({ winnerPlayerId: null, winnerEntityId: null, timeUp: true });
+  });
+
+  it("le dernier survivant gagne sans attendre la fin du temps", async () => {
+    const { room, players: [a, b] } = await setup();
+    await stab(room, a, entityOf(b));
+    advance(room, 1 / TICK_RATE);
+    expect(room.state.phase).toBe("roundEnd");
+    await waitFor(() => a.reveals.length === 1, "révélation");
+    expect(a.reveals[0]).toMatchObject({ winnerPlayerId: a.sessionId, timeUp: false });
   });
 
   it("la course garde sa pièce éclairée et n'a pas de minuteur", async () => {

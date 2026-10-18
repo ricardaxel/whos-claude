@@ -292,6 +292,8 @@ export interface RevealMessage {
   /** Entité gagnante ; si c'est un PNJ (winnerPlayerId null), c'est l'IA qui gagne. */
   winnerEntityId: string | null;
   players: { playerId: string; entityId: string }[];
+  /** Manche arrêtée par le temps (assassins) : le gagnant est celui qui a le plus éliminé. */
+  timeUp: boolean;
 }
 
 /** Options envoyées en créant ou rejoignant une room. */

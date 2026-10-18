@@ -261,7 +261,7 @@ export class GameScene extends Phaser.Scene {
     if (victim === "player") this.flash(this.toast, "Un joueur a été poignardé !", 1800);
   }
 
-  private showResults({ winnerPlayerId, winnerEntityId, players }: RevealMessage) {
+  private showResults({ winnerPlayerId, winnerEntityId, players, timeUp }: RevealMessage) {
     const state = this.room!.state;
     // Fin de manche : on révèle tous les joueurs (avec leur pseudo), le gagnant en doré.
     for (const { playerId, entityId } of players) {
@@ -292,9 +292,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     const winner = winnerPlayerId ? state.players.get(winnerPlayerId) : undefined;
-    const text = npcWins
+    const outcome = npcWins
       ? "L'IA gagne !"
       : !winnerPlayerId ? "Personne\nne gagne" : winnerPlayerId === this.room!.sessionId ? "Victoire !" : `Victoire de\n${winner?.name ?? "?"}`;
+    // Fin au temps (assassins) : le gagnant est celui qui a le plus éliminé.
+    const text = timeUp ? `Temps écoulé !\n${outcome}` : outcome;
     this.banner.setColor(winnerPlayerId === this.room!.sessionId ? GOLD : INK).setText(text).pop();
   }
 

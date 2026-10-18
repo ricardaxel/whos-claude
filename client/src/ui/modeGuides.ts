@@ -48,7 +48,8 @@ export const MODE_GUIDES: Record<ModeId, ModeGuide> = {
       "Chaque joueur a un couteau, et doit d'abord découvrir quel personnage il contrôle.",
     goal: [
       "Sois le dernier joueur en vie.",
-      `Au bout de ${minutes} minutes, la manche s'arrête : personne ne gagne.`,
+      `Au bout de ${minutes} minutes, le joueur qui a éliminé le plus de joueurs gagne (mort ou vif). ` +
+        "Les PNJ ne comptent pas ; à égalité, personne ne gagne.",
     ],
     tips: [
       "Les PNJ ne frappent jamais : un coup de couteau, visible de tous, trahit un joueur.",

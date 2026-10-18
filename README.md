@@ -118,7 +118,9 @@ visible de tous, trahit donc un joueur.
 Une **lumière d'ambiance** erre dans la pièce. Le geste est dessiné sous l'obscurité :
 bien visible dans la lumière, à peine dans le noir. Mieux vaut frapper dans l'ombre.
 
-Le dernier survivant gagne. Au bout de 2 minutes, la manche s'arrête sans gagnant.
+Le dernier survivant gagne. Au bout de 2 minutes, la manche s'arrête : le joueur qui a
+éliminé le plus de joueurs gagne, même s'il est mort entre-temps. Les PNJ tués ne comptent
+pas ; sans élimination, ou à égalité, personne ne gagne.
 
 ## Contrôles
 
